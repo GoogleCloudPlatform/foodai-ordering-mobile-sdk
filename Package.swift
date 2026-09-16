@@ -34,8 +34,8 @@ let package = Package(
         // Targets can depend on other targets in this package and products from dependencies.
         .binaryTarget(
             name: "foodai_orderingagent",
-            url: "https://dl.google.com/food-ordering-ai-agent/v0.3.0/foodai_orderingagent_xcframework/foodai_orderingagent_xcframework.xcframework.zip",
-            checksum: "5edf577ac573df4fa8b42f24e92ee86d8531c2e65e1deeefa55f6a89c5350acf"
+            url: "https://dl.google.com/food-ordering-ai-agent/v0.5.0/foodai_orderingagent_xcframework/foodai_orderingagent_xcframework.xcframework.zip",
+            checksum: "87080d6cb619b4270cdd188ba5027307b5b05ad6a4723929dac8a4a7839c5005"
         )
     ]
 )
