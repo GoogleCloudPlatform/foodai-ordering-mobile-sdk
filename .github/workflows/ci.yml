@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'react-native/**'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'react-native/**'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-react-native:
+    name: Typecheck & Build React Native Package
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: react-native
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Run sample app TypeScript typecheck
+        run: npm run typecheck:example
+
+      - name: Build CommonJS, ESM, and TypeScript declarations
+        run: npm run build
+
+      - name: Verify npm package contents
+        run: npm pack --dry-run

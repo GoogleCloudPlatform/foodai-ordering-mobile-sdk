@@ -1,0 +1,51 @@
+name: Release React Native Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag to attach the tarball to (e.g. v0.6.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release-react-native:
+    name: Build & Attach React Native Tarball
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: react-native
+        run: npm install
+
+      - name: Run TypeScript typecheck
+        working-directory: react-native
+        run: npm run typecheck
+
+      - name: Build CommonJS, ESM, and TypeScript declarations
+        working-directory: react-native
+        run: npm run build
+
+      - name: Pack npm tarball
+        working-directory: react-native
+        run: npm pack
+
+      - name: Upload tarball to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          generate_release_notes: true
+          files: react-native/google-cloud-foodai-ordering-react-native-*.tgz
