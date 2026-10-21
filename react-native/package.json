@@ -1,0 +1,93 @@
+{
+  "name": "@google-cloud/foodai-ordering-react-native",
+  "version": "0.6.0",
+  "description": "React Native mobile SDK for Google Cloud Food Ordering AI Agent (headless bidirectional streaming and native voice ordering).",
+  "license": "Apache-2.0",
+  "author": "Google LLC",
+  "homepage": "https://github.com/GoogleCloudPlatform/foodai-ordering-mobile-sdk/tree/main/react-native",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GoogleCloudPlatform/foodai-ordering-mobile-sdk.git",
+    "directory": "react-native"
+  },
+  "main": "lib/commonjs/index.js",
+  "module": "lib/module/index.js",
+  "types": "lib/typescript/src/index.d.ts",
+  "react-native": "src/index.ts",
+  "source": "src/index.ts",
+  "files": [
+    "src",
+    "lib",
+    "android",
+    "ios",
+    "react-native.config.js",
+    "FoodaiOrderingReactNative.podspec",
+    "LICENSE",
+    "README.md",
+    "!**/__tests__",
+    "!**/__fixtures__",
+    "!**/__mocks__",
+    "!**/.*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "typecheck:example": "tsc --noEmit -p example/tsconfig.json",
+    "build": "bob build",
+    "clean": "del-cli android/build lib",
+    "prepack": "bob build"
+  },
+  "peerDependencies": {
+    "react": ">=18.2.0",
+    "react-native": ">=0.76.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "^19.2.0",
+    "del-cli": "^5.1.0",
+    "react": "19.2.0",
+    "react-native": "0.83.0",
+    "react-native-builder-bob": "^0.30.2",
+    "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "regexpu-core": "6.2.0",
+    "regenerate": "1.4.2"
+  },
+  "codegenConfig": {
+    "name": "FoodOrderingSpec",
+    "type": "modules",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "com.google.cloud.foodai.ordering.reactnative"
+    },
+    "ios": {
+      "modulesProvider": {
+        "FoodOrderingModule": "FoodOrderingModule"
+      }
+    }
+  },
+  "react-native-builder-bob": {
+    "source": "src",
+    "output": "lib",
+    "targets": [
+      "commonjs",
+      "module",
+      [
+        "typescript",
+        {
+          "project": "tsconfig.build.json"
+        }
+      ]
+    ]
+  },
+  "keywords": [
+    "google-cloud",
+    "foodai",
+    "food-ordering",
+    "conversational-ai",
+    "voice-ordering",
+    "react-native",
+    "ios",
+    "android"
+  ]
+}

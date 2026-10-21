@@ -1,0 +1,37 @@
+{
+  "name": "foodai-ordering-react-native-example",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Sample React Native application demonstrating @google-cloud/foodai-ordering-react-native headless voice and multimodal ordering.",
+  "scripts": {
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "start": "react-native start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google-cloud/foodai-ordering-react-native": "file:..",
+    "react": "19.2.0",
+    "react-native": "0.83.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/preset-env": "^7.25.3",
+    "@babel/runtime": "^7.25.0",
+    "@react-native-community/cli": "20.0.0",
+    "@react-native-community/cli-platform-android": "20.0.0",
+    "@react-native-community/cli-platform-ios": "20.0.0",
+    "@react-native/babel-preset": "0.83.0",
+    "@react-native/metro-config": "0.83.0",
+    "@react-native/typescript-config": "0.83.0",
+    "@types/react": "^19.2.0",
+    "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "regexpu-core": "6.2.0",
+    "regenerate": "1.4.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

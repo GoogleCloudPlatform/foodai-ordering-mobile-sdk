@@ -1,0 +1,109 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// No buildscript classpath here: when autolinked into an RN 0.83 app, AGP, Kotlin and the
+// React Native Gradle plugin are already on the app's root build classpath (supplied by
+// @react-native/gradle-plugin), and unversioned classpath entries can't resolve in a library.
+ext.getExtOrDefault = { prop, defaultValue ->
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : defaultValue
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'com.facebook.react'
+
+def getExtOrIntegerDefault(prop, defaultValue) {
+  return rootProject.ext.has(prop) ? rootProject.ext.get(prop).toInteger() : defaultValue
+}
+
+def getExtOrStringDefault(prop, defaultValue) {
+  return rootProject.ext.has(prop) ? rootProject.ext.get(prop).toString() : defaultValue
+}
+
+def foodAiAndroidSdkVersion = getExtOrStringDefault('foodAiAndroidSdkVersion', '0.6.0')
+
+android {
+  namespace 'com.google.cloud.foodai.ordering.reactnative'
+  compileSdkVersion getExtOrIntegerDefault('compileSdkVersion', 36)
+
+  defaultConfig {
+    minSdkVersion getExtOrIntegerDefault('minSdkVersion', 24)
+    targetSdkVersion getExtOrIntegerDefault('targetSdkVersion', 36)
+    consumerProguardFiles 'consumer-rules.pro'
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = '17'
+  }
+}
+
+repositories {
+  google()
+  mavenCentral()
+
+  ivy {
+    url 'https://dl.google.com/food-ordering-ai-agent/'
+    patternLayout {
+      artifact 'v[revision]/[artifact].[ext]'
+      artifact '[revision]/[artifact].[ext]'
+    }
+    metadataSources {
+      artifact()
+    }
+  }
+}
+
+dependencies {
+  // React Native New Architecture runtime provided by the host application.
+  //noinspection GradleDynamicVersion
+  implementation 'com.facebook.react:react-android'
+
+  // Google Cloud Food Ordering AI Agent native Android SDK AAR.
+  implementation "com.google.android.foodorderingaiagent:foodorderingaiagent:${foodAiAndroidSdkVersion}@aar"
+
+  // External Maven dependencies required by foodorderingaiagent.aar.
+  implementation "org.jetbrains.kotlin:kotlin-stdlib:${getExtOrStringDefault('kotlinVersion', '2.1.20')}"
+  implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
+  implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+
+  implementation 'io.grpc:grpc-api:1.81.0'
+  implementation 'io.grpc:grpc-core:1.81.0'
+  implementation 'io.grpc:grpc-context:1.81.0'
+  implementation 'io.grpc:grpc-okhttp:1.81.0'
+  implementation 'io.grpc:grpc-protobuf-lite:1.81.0'
+  implementation 'io.grpc:grpc-stub:1.81.0'
+  implementation 'io.grpc:grpc-kotlin-stub:1.4.1'
+  implementation 'com.squareup.okio:okio:3.17.0'
+
+  implementation 'androidx.activity:activity:1.9.3'
+  implementation 'androidx.appcompat:appcompat:1.7.1'
+  implementation 'androidx.core:core-ktx:1.13.0'
+  implementation 'androidx.fragment:fragment:1.8.5'
+  implementation 'androidx.webkit:webkit:1.12.1'
+
+  implementation 'androidx.compose.foundation:foundation:1.7.5'
+  implementation 'androidx.compose.foundation:foundation-layout:1.7.5'
+  implementation 'androidx.compose.material:material-icons-core:1.7.5'
+  implementation 'androidx.compose.material3:material3:1.4.0'
+  implementation 'androidx.compose.runtime:runtime:1.7.5'
+  implementation 'androidx.compose.ui:ui:1.7.5'
+
+  implementation 'com.google.errorprone:error_prone_annotations:2.26.0'
+  implementation 'com.google.code.findbugs:jsr305:3.0.2'
+}
