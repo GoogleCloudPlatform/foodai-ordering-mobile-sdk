@@ -15,7 +15,7 @@
 require "json"
 
 package = JSON.parse(File.read(File.join(__dir__, "package.json")))
-foodai_ios_sdk_version = ENV["FOODAI_IOS_SDK_VERSION"] || "0.6.0"
+foodai_ios_sdk_version = ENV["FOODAI_IOS_SDK_VERSION"] || "0.7.0"
 
 Pod::Spec.new do |s|
   s.name         = "FoodaiOrderingReactNative"
@@ -28,22 +28,20 @@ Pod::Spec.new do |s|
   s.platforms    = { :ios => respond_to?(:min_ios_version_supported, true) ? min_ios_version_supported : "15.1" }
   s.source       = { :git => "https://github.com/GoogleCloudPlatform/foodai-ordering-mobile-sdk.git", :tag => "v#{s.version}" }
 
-  s.source_files = "ios/**/*.{h,m,mm,swift}"
+  s.source_files = "ios/*.{h,m,mm,swift}"
   # Keep ObjC++ headers (which import C++ codegen/RN headers) out of the pod's public
   # Clang module umbrella; otherwise Swift/ObjC module scanning fails on C++ std headers.
-  s.private_header_files = "ios/**/*.h"
+  s.private_header_files = "ios/*.h"
   s.swift_version = "5.9"
 
-  # Automatically download and unpack foodai_orderingagent.xcframework from Google Lorry
-  # if not already placed in ios/Frameworks/foodai_orderingagent.xcframework.
+  s.test_spec "Tests" do |test_spec|
+    test_spec.source_files = "ios/Tests/**/*.swift"
+  end
+
+  # Download and unpack foodai_orderingagent.xcframework when missing or when the
+  # cached version differs from foodai_ios_sdk_version.
   s.prepare_command = <<-CMD
-    if [ ! -d "ios/Frameworks/foodai_orderingagent.xcframework" ]; then
-      mkdir -p ios/Frameworks
-      (curl -fSL "https://dl.google.com/food-ordering-ai-agent/v#{foodai_ios_sdk_version}/foodai_orderingagent_xcframework/foodai_orderingagent_xcframework.xcframework.zip" -o ios/Frameworks/foodai_orderingagent.xcframework.zip || \
-       curl -fSL "https://dl.google.com/food-ordering-ai-agent/v#{foodai_ios_sdk_version}/foodai_orderingagent_xcframework.xcframework.zip" -o ios/Frameworks/foodai_orderingagent.xcframework.zip)
-      unzip -q -o ios/Frameworks/foodai_orderingagent.xcframework.zip -d ios/Frameworks/
-      rm -f ios/Frameworks/foodai_orderingagent.xcframework.zip
-    fi
+    sh ./scripts/fetch-ios-sdk.sh "#{foodai_ios_sdk_version}"
   CMD
 
   s.vendored_frameworks = "ios/Frameworks/foodai_orderingagent.xcframework"

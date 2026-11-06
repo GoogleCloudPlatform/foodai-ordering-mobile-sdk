@@ -1,6 +1,6 @@
 {
   "name": "foodai-ordering-react-native-example",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "Sample React Native application demonstrating @google-cloud/foodai-ordering-react-native headless voice and multimodal ordering.",
   "scripts": {

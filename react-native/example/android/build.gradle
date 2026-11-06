@@ -20,7 +20,7 @@ buildscript {
     targetSdkVersion = 36
     ndkVersion = "27.1.12297006"
     kotlinVersion = "2.1.20"
-    foodAiAndroidSdkVersion = "0.6.0"
+    foodAiAndroidSdkVersion = "0.7.0"
   }
   repositories {
     google()
@@ -37,15 +37,8 @@ allprojects {
   repositories {
     google()
     mavenCentral()
-    ivy {
-      url "https://dl.google.com/food-ordering-ai-agent/"
-      patternLayout {
-        artifact "v[revision]/[artifact].[ext]"
-        artifact "[revision]/[artifact].[ext]"
-      }
-      metadataSources {
-        artifact()
-      }
+    maven {
+      url "https://us-maven.pkg.dev/food-ai-prod-services/android-sdk"
     }
   }
 }

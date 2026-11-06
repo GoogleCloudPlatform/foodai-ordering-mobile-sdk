@@ -40,6 +40,9 @@ jobs:
       - name: Run sample app TypeScript typecheck
         run: npm run typecheck:example
 
+      - name: Run unit tests
+        run: npm test
+
       - name: Build CommonJS, ESM, and TypeScript declarations
         run: npm run build
 

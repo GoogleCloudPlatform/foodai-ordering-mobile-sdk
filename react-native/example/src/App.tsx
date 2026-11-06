@@ -23,6 +23,8 @@ import {
   View,
 } from 'react-native';
 import {
+  type AgentEventPayload,
+  type Discount,
   type EndSession,
   type FinalizeOrderRequest,
   type FinalizeOrderResponse,
@@ -30,20 +32,29 @@ import {
   type FoodOrderingErrorCode,
   type FoodOrderingErrorEvent,
   foodOrderingClient,
+  type LoyaltyRequest,
+  type LoyaltyResponse,
   type Money,
   type Order,
   type OrderItem,
+  type OrderingSessionConfig,
   type OrderPricesRequest,
   type OrderPricesResponse,
   type OrderStatusRequest,
   type OrderStatusResponse,
+  type OrderUpdateEvent,
+  type SessionEndedEvent,
+  type StoreSchedule,
   type SubmitOrderPaymentInfo,
   type SubmitOrderRequest,
   type SubmitOrderResponse,
   type SuggestedAction,
   type SuggestedItem,
   type SuggestedModifier,
+  type SuggestedOffer,
   type SuggestedOptions,
+  type SuggestedOptionsEvent,
+  type TimeOfDay,
   type UpdatedOrderState,
 } from '@google-cloud/foodai-ordering-react-native';
 import { hasUnfilledPlaceholders } from './config.example';
@@ -57,11 +68,35 @@ type DemoLifecycleState =
   | 'RESUMED'
   | 'ENDED';
 
+type DebugSimulationScenario =
+  | 'STORE_CHANGE'
+  | 'RESTART_ORDER'
+  | 'AGENT_EVENT_UNKNOWN'
+  | 'REQUESTED_STORE_SELECTION'
+  | 'STORE_CLOSED'
+  | 'SUGGESTED_OFFERS'
+  | 'LOYALTY_IDENTIFY'
+  | 'ORDER_UPDATE_WITH_TIP';
+
 interface ErrorBannerState {
   readonly code: string;
   readonly message: string;
   readonly guidance: string;
 }
+
+const DEBUG_SCENARIOS: readonly {
+  readonly scenario: DebugSimulationScenario;
+  readonly label: string;
+}[] = [
+  { scenario: 'STORE_CHANGE', label: 'Store Change' },
+  { scenario: 'RESTART_ORDER', label: 'Restart Order' },
+  { scenario: 'AGENT_EVENT_UNKNOWN', label: 'Unknown AgentEvent' },
+  { scenario: 'REQUESTED_STORE_SELECTION', label: 'Store Picker End' },
+  { scenario: 'STORE_CLOSED', label: 'Store Closed + Hours' },
+  { scenario: 'SUGGESTED_OFFERS', label: 'Suggested Offers' },
+  { scenario: 'LOYALTY_IDENTIFY', label: 'Loyalty Callback' },
+  { scenario: 'ORDER_UPDATE_WITH_TIP', label: 'Order + Tip' },
+];
 
 /**
  * Formats a `google.type.Money` value using `Intl.NumberFormat`.
@@ -97,6 +132,62 @@ function toUsdMoney(amount: number): Money {
     units: wholeUnits,
     nanos,
   };
+}
+
+/**
+ * Formats a `TimeOfDay` as `HH:MM`.
+ */
+function formatTimeOfDay(time?: TimeOfDay): string {
+  if (time == null) {
+    return '';
+  }
+  const hh = String(time.hours).padStart(2, '0');
+  const mm = String(time.minutes).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+/**
+ * Formats a `StoreSchedule` into a concise single-line summary.
+ */
+function formatStoreSchedule(schedule?: StoreSchedule): string {
+  if (schedule == null) {
+    return '';
+  }
+  const daysText =
+    schedule.days.length > 0 ? schedule.days.map(String).join(', ') : 'Daily';
+  const hoursText = schedule.timeRanges
+    .map((range) => {
+      const start = formatTimeOfDay(range.startTime);
+      const end = formatTimeOfDay(range.endTime);
+      return start && end ? `${start}-${end}` : start || end;
+    })
+    .filter((entry) => entry !== '')
+    .join(', ');
+  return hoursText ? `${daysText}: ${hoursText}` : daysText;
+}
+
+/**
+ * Formats a promotional `Discount` badge label.
+ */
+function formatDiscountBadge(discount: Discount): string {
+  switch (discount.type) {
+    case 'PERCENT_OFF':
+      return `${discount.percent}% OFF`;
+    case 'FIXED_OFF':
+      return discount.fixedAmount
+        ? `${formatMoney(discount.fixedAmount)} OFF`
+        : 'DISCOUNT';
+    case 'FIXED_TOTAL':
+      return discount.fixedAmount
+        ? `${formatMoney(discount.fixedAmount)} DEAL`
+        : 'DEAL';
+    case 'BOGO':
+      return 'BOGO';
+    case 'FREE_DELIVERY':
+      return 'FREE DELIVERY';
+    default:
+      return discount.autoApply ? 'AUTO' : 'OFFER';
+  }
 }
 
 /**
@@ -150,6 +241,44 @@ function parseThrownError(err: unknown): ErrorBannerState {
 }
 
 /**
+ * Builds a stable identifier segment for a `SuggestedItem` when `itemId` may be
+ * empty (for example, category quick-reply items or downstream-ID-only menus).
+ */
+function getSuggestedItemKeyBase(item: SuggestedItem): string {
+  return (
+    item.itemId ||
+    item.integrationAttributes?.externalItemId ||
+    item.displayName ||
+    'item'
+  );
+}
+
+/**
+ * Builds a stable identifier segment for a `SuggestedModifier` when
+ * `modifierGroupId` or `modifierId` may be empty (for example, modifiers
+ * emitted inside `SuggestedModGroup` whose identity is carried in
+ * `integrationAttributes.externalModifierId` or `displayName`).
+ */
+function getSuggestedModifierKeyBase(mod: SuggestedModifier): string {
+  const customAttrs = mod.integrationAttributes?.customIntegrationAttributes;
+  const externalGroupId =
+    typeof customAttrs?.externalModifierGroupId === 'string'
+      ? customAttrs.externalModifierGroupId
+      : '';
+  const groupKey =
+    mod.modifierGroupId ||
+    externalGroupId ||
+    mod.modifierGroupDisplayName ||
+    'group';
+  const modKey =
+    mod.modifierId ||
+    mod.integrationAttributes?.externalModifierId ||
+    mod.displayName ||
+    'mod';
+  return `${groupKey}-${modKey}`;
+}
+
+/**
  * Single-screen sample application demonstrating the headless
  * `@google-cloud/foodai-ordering-react-native` integration flow.
  */
@@ -164,8 +293,23 @@ export function App(): React.JSX.Element {
   const [lifecycleState, setLifecycleState] =
     useState<DemoLifecycleState>('IDLE');
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [activeStoreId, setActiveStoreId] = useState<string>(
+    appConfig.sessionConfig.storeId
+  );
   const [isMicMuted, setIsMicMuted] = useState<boolean>(false);
   const [audioLevel, setAudioLevel] = useState<number>(0);
+
+  const [storeSelectionEnabled, setStoreSelectionEnabled] = useState<boolean>(
+    appConfig.sessionConfig.featureGate?.storeSelectionEnabled ?? true
+  );
+  const [offersAndLoyaltyEnabled, setOffersAndLoyaltyEnabled] =
+    useState<boolean>(
+      appConfig.sessionConfig.featureGate?.offersAndLoyaltyEnabled ?? true
+    );
+  const [includeSampleLocation, setIncludeSampleLocation] = useState<boolean>(
+    appConfig.sessionConfig.userInfo?.location != null
+  );
+  const [isDebugPanelOpen, setIsDebugPanelOpen] = useState<boolean>(true);
 
   const [speechTranscript, setSpeechTranscript] = useState<string>('');
   const [isTranscriptFinal, setIsTranscriptFinal] = useState<boolean>(false);
@@ -193,8 +337,8 @@ export function App(): React.JSX.Element {
   }, []);
 
   /**
-   * Delegate implementation handling auth token requests and POS callbacks
-   * (`finalizeOrder`, `orderPrices`, `submitOrder`, `orderStatus`, and `audioLevel`).
+   * Delegate implementation handling auth token requests and POS/loyalty callbacks
+   * (`finalizeOrder`, `orderPrices`, `submitOrder`, `orderStatus`, `loyalty`, and `audioLevel`).
    */
   const delegateRef = useRef<FoodOrderingDelegate>({
     handleAuthTokenRequest: async () => {
@@ -209,7 +353,8 @@ export function App(): React.JSX.Element {
       let subtotal = 0;
       for (const item of items) {
         const unitPrice = item.basePrice
-          ? Number(item.basePrice.units) + (item.basePrice.nanos ?? 0) / 1_000_000_000
+          ? Number(item.basePrice.units) +
+            (item.basePrice.nanos ?? 0) / 1_000_000_000
           : 4.99;
         subtotal += unitPrice * item.quantity;
       }
@@ -257,11 +402,14 @@ export function App(): React.JSX.Element {
       const hasCvv = Boolean(
         paymentInfo?.creditCardCvv && paymentInfo.creditCardCvv.length > 0
       );
+      const tipSummary = request.tip ? `, tip=${formatMoney(request.tip)}` : '';
       appendDelegateLog(
-        `handleSubmitOrder -> method=${method}, last4=${lastFour}, cvvPresent=${hasCvv} (redacted)`
+        `handleSubmitOrder -> method=${method}, last4=${lastFour}, cvvPresent=${hasCvv} (redacted)${tipSummary}`
       );
       return {
         success: true,
+        estimatedReadyDuration: { seconds: 300 },
+        externalOrderId: 'DEMO-POS-1001',
       };
     },
 
@@ -271,6 +419,50 @@ export function App(): React.JSX.Element {
       appendDelegateLog('handleOrderStatus -> success=true');
       return {
         success: true,
+      };
+    },
+
+    handleLoyalty: async (
+      request: LoyaltyRequest
+    ): Promise<LoyaltyResponse> => {
+      // Never log raw customer identifiers (phone, email, account ID, or code).
+      const hasIdentifier = Boolean(
+        request.phoneNumber || request.email || request.loyaltyAccountId
+      );
+      const rewardCount = request.rewardIds?.length ?? 0;
+      appendDelegateLog(
+        `handleLoyalty -> category=${request.category}, idPresent=${hasIdentifier}, rewards=${rewardCount}`
+      );
+
+      if (request.category === 'LOYALTY_ACTION_CATEGORY_REMOVE_LOYALTY') {
+        return {
+          category: request.category,
+          loyaltyMetadata: {
+            appliedCodes: [],
+            appliedRewardIds: [],
+          },
+        };
+      }
+
+      return {
+        category: request.category,
+        loyaltyMetadata: {
+          customer: {
+            name: 'Alex',
+            tier: 'Gold',
+            loyaltyAmount: { units: 450 },
+          },
+          availableRewards: [
+            {
+              rewardId: 'reward-free-fries',
+              displayName: 'Free Medium Fries',
+              description: 'Redeem 200 points for medium fries.',
+              redemptionCost: { units: 200 },
+            },
+          ],
+          appliedCodes: request.code ? [request.code] : [],
+          appliedRewardIds: request.rewardIds ?? [],
+        },
       };
     },
 
@@ -298,6 +490,53 @@ export function App(): React.JSX.Element {
     }
   }, [appConfig.clientConfig, appendDelegateLog]);
 
+  const handleOrderUpdateEvent = useCallback((event: OrderUpdateEvent): void => {
+    setOrderState(event.updatedOrderState);
+    if (event.order != null) {
+      setCurrentOrder(event.order);
+    } else if (event.updatedOrderState.order != null) {
+      setCurrentOrder(event.updatedOrderState.order);
+    }
+  }, []);
+
+  const handleSuggestedOptionsEvent = useCallback(
+    (event: SuggestedOptionsEvent): void => {
+      setSuggestedOptions(event.suggestedOptions);
+    },
+    []
+  );
+
+  const handleAgentEventReceived = useCallback(
+    (event: AgentEventPayload): void => {
+      switch (event.agentEvent.type) {
+        case 'STORE_CHANGE':
+          setActiveStoreId(event.agentEvent.store);
+          appendDelegateLog(
+            `Event: agentEvent.STORE_CHANGE -> ${event.agentEvent.store}`
+          );
+          break;
+        case 'RESTART_ORDER':
+          appendDelegateLog(
+            `Event: agentEvent.RESTART_ORDER (confirmationStep=${event.agentEvent.confirmationStep})`
+          );
+          break;
+        case 'UNKNOWN':
+          appendDelegateLog('Event: agentEvent.UNKNOWN');
+          break;
+      }
+    },
+    [appendDelegateLog]
+  );
+
+  const handleSessionEndedEvent = useCallback(
+    (event: SessionEndedEvent): void => {
+      setEndSessionInfo(event.endSession);
+      setLifecycleState('ENDED');
+      setAudioLevel(0);
+    },
+    []
+  );
+
   useEffect(() => {
     void configureSdk();
 
@@ -318,35 +557,16 @@ export function App(): React.JSX.Element {
       foodOrderingClient.onAgentText((event) => {
         setAgentText(event.text);
       }),
-      foodOrderingClient.onOrderUpdate((event) => {
-        setOrderState(event.updatedOrderState);
-        if (event.order != null) {
-          setCurrentOrder(event.order);
-        } else if (event.updatedOrderState.order != null) {
-          setCurrentOrder(event.updatedOrderState.order);
-        }
-      }),
-      foodOrderingClient.onSuggestedOptions((event) => {
-        setSuggestedOptions(event.suggestedOptions);
-      }),
+      foodOrderingClient.onOrderUpdate(handleOrderUpdateEvent),
+      foodOrderingClient.onSuggestedOptions(handleSuggestedOptionsEvent),
       foodOrderingClient.onTurnCompleted(() => {
         setTurnCount((prev) => prev + 1);
       }),
       foodOrderingClient.onInterruptionSignal(() => {
         appendDelegateLog('Event: interruptionSignal (user barge-in)');
       }),
-      foodOrderingClient.onAgentEvent((event) => {
-        if (event.agentEvent.restartOrder != null) {
-          appendDelegateLog(
-            `Event: agentEvent.restartOrder (confirmationStep=${event.agentEvent.restartOrder.confirmationStep})`
-          );
-        }
-      }),
-      foodOrderingClient.onSessionEnded((event) => {
-        setEndSessionInfo(event.endSession);
-        setLifecycleState('ENDED');
-        setAudioLevel(0);
-      }),
+      foodOrderingClient.onAgentEvent(handleAgentEventReceived),
+      foodOrderingClient.onSessionEnded(handleSessionEndedEvent),
       foodOrderingClient.onError((event: FoodOrderingErrorEvent) => {
         setErrorBanner({
           code: event.code,
@@ -371,7 +591,14 @@ export function App(): React.JSX.Element {
       }
       void foodOrderingClient.release();
     };
-  }, [appendDelegateLog, configureSdk]);
+  }, [
+    appendDelegateLog,
+    configureSdk,
+    handleAgentEventReceived,
+    handleOrderUpdateEvent,
+    handleSessionEndedEvent,
+    handleSuggestedOptionsEvent,
+  ]);
 
   /**
    * Requests microphone permission and starts a new voice ordering session.
@@ -394,15 +621,43 @@ export function App(): React.JSX.Element {
       }
       setLifecycleState('CONNECTING');
       setIsMicMuted(false);
-      const startedId = await foodOrderingClient.startSession(
-        appConfig.sessionConfig
-      );
+
+      const baseSession = appConfig.sessionConfig;
+      const mergedSessionConfig: OrderingSessionConfig = {
+        ...baseSession,
+        storeId: activeStoreId,
+        userInfo: {
+          ...baseSession.userInfo,
+          location: includeSampleLocation
+            ? (baseSession.userInfo?.location ?? {
+                coordinates: { latitude: 37.422, longitude: -122.084 },
+                captureTime: { seconds: Math.floor(Date.now() / 1000) },
+              })
+            : undefined,
+        },
+        featureGate: {
+          ...baseSession.featureGate,
+          storeSelectionEnabled,
+          offersAndLoyaltyEnabled,
+        },
+      };
+
+      const startedId =
+        await foodOrderingClient.startSession(mergedSessionConfig);
       setSessionId(startedId);
     } catch (err: unknown) {
       setLifecycleState('IDLE');
       setErrorBanner(parseThrownError(err));
     }
-  }, [appConfig.sessionConfig, configureSdk, isConfigured]);
+  }, [
+    activeStoreId,
+    appConfig.sessionConfig,
+    configureSdk,
+    includeSampleLocation,
+    isConfigured,
+    offersAndLoyaltyEnabled,
+    storeSelectionEnabled,
+  ]);
 
   /**
    * Ends the current ordering session after draining any buffered agent audio.
@@ -454,6 +709,208 @@ export function App(): React.JSX.Element {
     }
   }, []);
 
+  /**
+   * Simulates synthetic `0.7.0` event payloads and delegate callbacks directly
+   * in the sample app's UI handlers (`__DEV__` only, without calling the SDK).
+   */
+  const handleSimulateDebugEvent = useCallback(
+    async (scenario: DebugSimulationScenario): Promise<void> => {
+      setErrorBanner(null);
+      const debugSessionId = sessionId ?? 'debug-session-070';
+      try {
+        switch (scenario) {
+          case 'STORE_CHANGE':
+            handleAgentEventReceived({
+              sessionId: debugSessionId,
+              agentEvent: {
+                type: 'STORE_CHANGE',
+                store: 'projects/demo-project/locations/global/stores/store-downtown-42',
+              },
+            });
+            break;
+
+          case 'RESTART_ORDER':
+            handleAgentEventReceived({
+              sessionId: debugSessionId,
+              agentEvent: {
+                type: 'RESTART_ORDER',
+                confirmationStep: true,
+              },
+            });
+            break;
+
+          case 'AGENT_EVENT_UNKNOWN':
+            handleAgentEventReceived({
+              sessionId: debugSessionId,
+              agentEvent: {
+                type: 'UNKNOWN',
+              },
+            });
+            break;
+
+          case 'REQUESTED_STORE_SELECTION':
+            handleSessionEndedEvent({
+              sessionId: debugSessionId,
+              endSession: {
+                type: 'REQUESTED_STORE_SELECTION',
+                reason: 'Customer requested to choose a store on screen.',
+                agentResponse:
+                  'Sure, please pick your preferred store location on screen.',
+              },
+            });
+            break;
+
+          case 'STORE_CLOSED': {
+            const schedule: StoreSchedule = {
+              days: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+              dateRanges: [],
+              timeRanges: [
+                {
+                  startTime: { hours: 7, minutes: 0, seconds: 0, nanos: 0 },
+                  endTime: { hours: 22, minutes: 0, seconds: 0, nanos: 0 },
+                },
+              ],
+            };
+            handleSessionEndedEvent({
+              sessionId: debugSessionId,
+              endSession: {
+                type: 'STORE_CLOSED',
+                reason: 'Selected store is currently outside operating hours.',
+                agentResponse: 'Sorry, this store is currently closed.',
+                storeSchedule: schedule,
+              },
+              storeSchedule: schedule,
+            });
+            break;
+          }
+
+          case 'SUGGESTED_OFFERS':
+            handleSuggestedOptionsEvent({
+              sessionId: debugSessionId,
+              suggestedOptions: {
+                suggestedOffers: {
+                  offers: [
+                    {
+                      loyaltyReward: {
+                        rewardId: 'reward-free-drink',
+                        displayName: 'Free Medium Fountain Drink',
+                        redemptionCost: { units: 250 },
+                        description:
+                          'Redeem 250 points for any medium fountain drink.',
+                        expireTime: { seconds: 1_893_456_000, nanos: 0 },
+                      },
+                    },
+                    {
+                      discount: {
+                        name: 'discounts/afternoon-20',
+                        displayName: '20% Off Afternoon Order',
+                        type: 'PERCENT_OFF',
+                        scope: 'ORDER',
+                        percent: 20,
+                        maxDiscountValue: {
+                          currencyCode: 'USD',
+                          units: 5,
+                          nanos: 0,
+                        },
+                        autoApply: false,
+                        description:
+                          'Save 20% on mobile orders placed during afternoon hours.',
+                      },
+                    },
+                  ],
+                },
+              },
+            });
+            break;
+
+          case 'LOYALTY_IDENTIFY': {
+            const loyaltyResponse = await delegateRef.current.handleLoyalty?.({
+              category: 'LOYALTY_ACTION_CATEGORY_IDENTIFY_CUSTOMER',
+              phoneNumber: '+15550109999',
+            });
+            if (loyaltyResponse?.loyaltyMetadata != null) {
+              const updatedOrder: Order = {
+                ...(currentOrder ?? { items: [] }),
+                metadata: {
+                  ...currentOrder?.metadata,
+                  loyaltyMetadata: loyaltyResponse.loyaltyMetadata,
+                },
+              };
+              handleOrderUpdateEvent({
+                sessionId: debugSessionId,
+                order: updatedOrder,
+                updatedOrderState: {
+                  items: updatedOrder.items,
+                  order: updatedOrder,
+                  changed: true,
+                  status: 'SUCCEEDED',
+                  detailedMessage: 'Applied loyalty member profile.',
+                },
+              });
+            }
+            break;
+          }
+
+          case 'ORDER_UPDATE_WITH_TIP': {
+            const sampleItem: OrderItem = {
+              uid: 'item-uid-1',
+              itemId: 'combo-classic-burger',
+              displayName: 'Classic Burger Combo',
+              basePrice: { currencyCode: 'USD', units: 10, nanos: 990_000_000 },
+              totalPrice: { currencyCode: 'USD', units: 10, nanos: 990_000_000 },
+              quantity: 1,
+            };
+            const sampleOrder: Order = {
+              items: [sampleItem],
+              fulfillment: {
+                fulfillmentMethod: 'FULFILLMENT_METHOD_DRIVE_THRU',
+                createTime: { seconds: 1_762_272_000, nanos: 0 },
+              },
+              priceInfo: {
+                subtotalPrice: {
+                  currencyCode: 'USD',
+                  units: 10,
+                  nanos: 990_000_000,
+                },
+                taxPrice: { currencyCode: 'USD', units: 0, nanos: 990_000_000 },
+                tip: { currencyCode: 'USD', units: 2, nanos: 0 },
+                totalPrice: {
+                  currencyCode: 'USD',
+                  units: 13,
+                  nanos: 980_000_000,
+                },
+              },
+            };
+            handleOrderUpdateEvent({
+              sessionId: debugSessionId,
+              order: sampleOrder,
+              updatedOrderState: {
+                items: [sampleItem],
+                order: sampleOrder,
+                changed: true,
+                status: 'SUCCEEDED',
+                detailedMessage: 'Added Classic Burger Combo with $2.00 tip.',
+              },
+            });
+            break;
+          }
+        }
+        appendDelegateLog(`Simulated debug scenario: ${scenario}`);
+      } catch (err: unknown) {
+        setErrorBanner(parseThrownError(err));
+      }
+    },
+    [
+      appendDelegateLog,
+      currentOrder,
+      handleAgentEventReceived,
+      handleOrderUpdateEvent,
+      handleSessionEndedEvent,
+      handleSuggestedOptionsEvent,
+      sessionId,
+    ]
+  );
+
   const orderItems: readonly OrderItem[] =
     currentOrder?.items ?? orderState?.items ?? [];
 
@@ -478,12 +935,12 @@ export function App(): React.JSX.Element {
     }
     const seen = new Set(
       directModifiers.map(
-        (mod) => `${mod.modifierGroupId}:${mod.modifierId}:${mod.displayName}`
+        (mod) => `${getSuggestedModifierKeyBase(mod)}:${mod.displayName}`
       )
     );
     const merged = [...directModifiers];
     for (const mod of groupModifiers) {
-      const key = `${mod.modifierGroupId}:${mod.modifierId}:${mod.displayName}`;
+      const key = `${getSuggestedModifierKeyBase(mod)}:${mod.displayName}`;
       if (!seen.has(key)) {
         seen.add(key);
         merged.push(mod);
@@ -495,10 +952,14 @@ export function App(): React.JSX.Element {
   const suggestedActionsList: readonly SuggestedAction[] =
     suggestedOptions?.suggestedActions?.actions ?? [];
 
+  const suggestedOffersList: readonly SuggestedOffer[] =
+    suggestedOptions?.suggestedOffers?.offers ?? [];
+
   const totalSuggestionsCount =
     suggestedItemsList.length +
     suggestedModifiersList.length +
-    suggestedActionsList.length;
+    suggestedActionsList.length +
+    suggestedOffersList.length;
 
   const suggestionChips: readonly {
     readonly key: string;
@@ -509,46 +970,73 @@ export function App(): React.JSX.Element {
       return [];
     }
     const chips: { key: string; label: string; query: string }[] = [];
-    for (const action of suggestedActionsList) {
+    suggestedActionsList.forEach((action, idx) => {
       const query = action.textInput?.text ?? action.displayName;
+      const actionKey = action.displayName || query || 'action';
       chips.push({
-        key: `action-${action.displayName}`,
+        key: `action-${actionKey}-${idx}`,
         label: action.displayName,
         query,
       });
-    }
-    for (const item of suggestedItemsList) {
+    });
+    suggestedOffersList.forEach((offer, idx) => {
+      if (offer.loyaltyReward?.displayName) {
+        const rewardKey =
+          offer.loyaltyReward.rewardId ||
+          offer.loyaltyReward.displayName ||
+          'reward';
+        chips.push({
+          key: `offer-reward-${rewardKey}-${idx}`,
+          label: `Redeem: ${offer.loyaltyReward.displayName}`,
+          query: `Redeem ${offer.loyaltyReward.displayName}`,
+        });
+      } else if (offer.discount?.displayName) {
+        const discountKey =
+          offer.discount.name || offer.discount.displayName || 'discount';
+        chips.push({
+          key: `offer-discount-${discountKey}-${idx}`,
+          label: `Offer: ${offer.discount.displayName}`,
+          query: `Apply ${offer.discount.displayName}`,
+        });
+      }
+    });
+    suggestedItemsList.forEach((item, idx) => {
       const priceSuffix = item.basePrice
         ? ` (${formatMoney(item.basePrice)})`
         : '';
       chips.push({
-        key: `item-${item.itemId}`,
+        key: `item-${getSuggestedItemKeyBase(item)}-${idx}`,
         label: `+ ${item.displayName}${priceSuffix}`,
         query: `Add ${item.displayName}`,
       });
-    }
-    for (const mod of suggestedModifiersList) {
+    });
+    suggestedModifiersList.forEach((mod, idx) => {
       chips.push({
-        key: `mod-${mod.modifierGroupId}-${mod.modifierId}`,
+        key: `mod-${getSuggestedModifierKeyBase(mod)}-${idx}`,
         label: mod.displayName,
         query: mod.displayName,
       });
-    }
+    });
     return chips;
   }, [
     suggestedActionsList,
     suggestedItemsList,
     suggestedModifiersList,
+    suggestedOffersList,
     suggestedOptions,
   ]);
+
+  const loyaltyCustomer = currentOrder?.metadata?.loyaltyMetadata?.customer;
+  const formattedStoreSchedule = formatStoreSchedule(
+    endSessionInfo?.storeSchedule
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Food AI Headless SDK Demo</Text>
         <Text style={styles.subtitle}>
-          Store: {appConfig.sessionConfig.storeId} • Brand:{' '}
-          {appConfig.clientConfig.brand}
+          Store: {activeStoreId} • Brand: {appConfig.clientConfig.brand}
         </Text>
 
         {placeholdersMissing ? (
@@ -609,6 +1097,67 @@ export function App(): React.JSX.Element {
             {isMicMuted ? ' (Paused)' : ''}
           </Text>
 
+          {!isSessionActiveOrConnecting ? (
+            <View style={styles.chipsContainer}>
+              <Pressable
+                style={[
+                  styles.togglePill,
+                  storeSelectionEnabled ? styles.togglePillActive : null,
+                ]}
+                onPress={() => {
+                  setStoreSelectionEnabled((prev) => !prev);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.togglePillText,
+                    storeSelectionEnabled ? styles.togglePillTextActive : null,
+                  ]}
+                >
+                  Store Selection: {storeSelectionEnabled ? 'ON' : 'OFF'}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.togglePill,
+                  offersAndLoyaltyEnabled ? styles.togglePillActive : null,
+                ]}
+                onPress={() => {
+                  setOffersAndLoyaltyEnabled((prev) => !prev);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.togglePillText,
+                    offersAndLoyaltyEnabled
+                      ? styles.togglePillTextActive
+                      : null,
+                  ]}
+                >
+                  Offers & Loyalty: {offersAndLoyaltyEnabled ? 'ON' : 'OFF'}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.togglePill,
+                  includeSampleLocation ? styles.togglePillActive : null,
+                ]}
+                onPress={() => {
+                  setIncludeSampleLocation((prev) => !prev);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.togglePillText,
+                    includeSampleLocation ? styles.togglePillTextActive : null,
+                  ]}
+                >
+                  User Location: {includeSampleLocation ? 'ON' : 'OFF'}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           {endSessionInfo != null ? (
             <View style={styles.endSessionBox}>
               <Text style={styles.endSessionTitle}>
@@ -622,6 +1171,16 @@ export function App(): React.JSX.Element {
               {endSessionInfo.agentResponse != null ? (
                 <Text style={styles.metaText}>
                   Agent: {endSessionInfo.agentResponse}
+                </Text>
+              ) : null}
+              {formattedStoreSchedule !== '' ? (
+                <Text style={styles.metaText}>
+                  Store Hours: {formattedStoreSchedule}
+                </Text>
+              ) : null}
+              {endSessionInfo.type === 'REQUESTED_STORE_SELECTION' ? (
+                <Text style={styles.metaText}>
+                  Action: Present native/RN store picker UI to choose a store.
                 </Text>
               ) : null}
             </View>
@@ -722,11 +1281,11 @@ export function App(): React.JSX.Element {
           ) : null}
         </View>
 
-        {/* Suggested Options & Modifiers List */}
+        {/* Suggested Options, Offers & Modifiers List */}
         <View style={styles.card}>
           <View style={styles.rowBetween}>
             <Text style={styles.cardTitle}>
-              Suggested Options & Modifiers ({totalSuggestionsCount})
+              Suggested Options & Offers ({totalSuggestionsCount})
             </Text>
             {totalSuggestionsCount > 0 ? (
               <Text style={styles.metaText}>Tap a row to send</Text>
@@ -735,10 +1294,88 @@ export function App(): React.JSX.Element {
 
           {totalSuggestionsCount === 0 ? (
             <Text style={styles.emptyText}>
-              No suggested options or modifiers right now.
+              No suggested options, offers, or modifiers right now.
             </Text>
           ) : (
             <>
+              {suggestedOffersList.length > 0 ? (
+                <View style={styles.suggestionSection}>
+                  <Text style={styles.suggestionSectionHeader}>
+                    Suggested Offers & Rewards ({suggestedOffersList.length})
+                  </Text>
+                  {suggestedOffersList.map((offer, idx) => {
+                    if (offer.loyaltyReward != null) {
+                      const reward = offer.loyaltyReward;
+                      const label = reward.displayName ?? 'Loyalty Reward';
+                      const costText = reward.redemptionCost
+                        ? `${reward.redemptionCost.units} pts`
+                        : 'Reward';
+                      return (
+                        <Pressable
+                          key={`suggested-reward-${reward.rewardId || label}-${idx}`}
+                          style={styles.suggestionRow}
+                          onPress={() => {
+                            void handleSendText(`Redeem ${label}`);
+                          }}
+                        >
+                          <View style={styles.suggestionRowMain}>
+                            <Text style={styles.orderItemName}>{label}</Text>
+                            {reward.description ? (
+                              <Text style={styles.suggestionHintText}>
+                                {reward.description}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <View style={styles.suggestionRowRight}>
+                            <Text style={styles.orderItemPrice}>{costText}</Text>
+                            <Text style={styles.suggestionActionLabel}>
+                              Redeem
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    }
+                    if (offer.discount != null) {
+                      const discount = offer.discount;
+                      const badgeLabel = formatDiscountBadge(discount);
+                      return (
+                        <Pressable
+                          key={`suggested-discount-${
+                            discount.name || discount.displayName || 'discount'
+                          }-${idx}`}
+                          style={styles.suggestionRow}
+                          onPress={() => {
+                            void handleSendText(
+                              `Apply ${discount.displayName}`
+                            );
+                          }}
+                        >
+                          <View style={styles.suggestionRowMain}>
+                            <Text style={styles.orderItemName}>
+                              {discount.displayName}
+                            </Text>
+                            {discount.description !== '' ? (
+                              <Text style={styles.suggestionHintText}>
+                                {discount.description}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <View style={styles.suggestionRowRight}>
+                            <Text style={styles.orderItemPrice}>
+                              {badgeLabel}
+                            </Text>
+                            <Text style={styles.suggestionActionLabel}>
+                              {discount.autoApply ? 'Auto' : 'Apply'}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    }
+                    return null;
+                  })}
+                </View>
+              ) : null}
+
               {suggestedItemsList.length > 0 ? (
                 <View style={styles.suggestionSection}>
                   <Text style={styles.suggestionSectionHeader}>
@@ -746,7 +1383,7 @@ export function App(): React.JSX.Element {
                   </Text>
                   {suggestedItemsList.map((item, idx) => (
                     <Pressable
-                      key={`suggested-item-${item.itemId || idx}`}
+                      key={`suggested-item-${getSuggestedItemKeyBase(item)}-${idx}`}
                       style={styles.suggestionRow}
                       onPress={() => {
                         void handleSendText(`Add ${item.displayName}`);
@@ -780,7 +1417,7 @@ export function App(): React.JSX.Element {
                   </Text>
                   {suggestedModifiersList.map((mod, idx) => (
                     <Pressable
-                      key={`suggested-mod-${mod.modifierGroupId}-${mod.modifierId}-${idx}`}
+                      key={`suggested-mod-${getSuggestedModifierKeyBase(mod)}-${idx}`}
                       style={styles.suggestionRow}
                       onPress={() => {
                         void handleSendText(mod.displayName);
@@ -822,9 +1459,10 @@ export function App(): React.JSX.Element {
                   {suggestedActionsList.map((action, idx) => {
                     const query =
                       action.textInput?.text ?? action.displayName;
+                    const actionKey = action.displayName || query || 'action';
                     return (
                       <Pressable
-                        key={`suggested-action-${action.displayName}-${idx}`}
+                        key={`suggested-action-${actionKey}-${idx}`}
                         style={styles.suggestionRow}
                         onPress={() => {
                           void handleSendText(query);
@@ -866,13 +1504,28 @@ export function App(): React.JSX.Element {
           {orderState?.detailedMessage ? (
             <Text style={styles.metaText}>{orderState.detailedMessage}</Text>
           ) : null}
+          {loyaltyCustomer != null ? (
+            <Text style={styles.loyaltyMemberText}>
+              Loyalty Member: {loyaltyCustomer.name ?? 'Signed In'}
+              {loyaltyCustomer.tier ? ` (${loyaltyCustomer.tier})` : ''}
+              {loyaltyCustomer.loyaltyAmount
+                ? ` • ${loyaltyCustomer.loyaltyAmount.units} pts`
+                : ''}
+            </Text>
+          ) : null}
 
           {orderItems.length === 0 ? (
             <Text style={styles.emptyText}>Your cart is empty.</Text>
           ) : (
             orderItems.map((item, idx) => (
               <View
-                key={item.uid ?? `${item.itemId}-${idx}`}
+                key={`${
+                  item.uid ||
+                  item.itemId ||
+                  item.integrationAttributes?.externalItemId ||
+                  item.displayName ||
+                  'order-item'
+                }-${idx}`}
                 style={styles.orderItemRow}
               >
                 <View style={styles.orderItemMain}>
@@ -883,13 +1536,21 @@ export function App(): React.JSX.Element {
                     {formatMoney(item.totalPrice ?? item.basePrice)}
                   </Text>
                 </View>
-                {(item.modifierGroups ?? []).map((group) =>
+                {(item.modifierGroups ?? []).map((group, groupIdx) =>
                   group.modifiers.map((mod, modIdx) => (
                     <Text
-                      key={
-                        mod.uid ??
-                        `${group.modifierGroupId}-${mod.modifierId}-${modIdx}`
-                      }
+                      key={`${
+                        mod.uid ||
+                        mod.modifierId ||
+                        mod.integrationAttributes?.externalModifierId ||
+                        mod.displayName ||
+                        'mod'
+                      }-${
+                        group.modifierGroupId ||
+                        group.integrationAttributes?.externalModifierGroupId ||
+                        group.displayName ||
+                        'group'
+                      }-${groupIdx}-${modIdx}`}
                       style={styles.modifierText}
                     >
                       • {mod.modifierAction?.name ?? ''}{' '}
@@ -909,9 +1570,19 @@ export function App(): React.JSX.Element {
                   Subtotal: {formatMoney(currentOrder.priceInfo.subtotalPrice)}
                 </Text>
               ) : null}
+              {currentOrder.priceInfo.discount != null ? (
+                <Text style={styles.metaText}>
+                  Discount: -{formatMoney(currentOrder.priceInfo.discount)}
+                </Text>
+              ) : null}
               {currentOrder.priceInfo.taxPrice != null ? (
                 <Text style={styles.metaText}>
                   Tax: {formatMoney(currentOrder.priceInfo.taxPrice)}
+                </Text>
+              ) : null}
+              {currentOrder.priceInfo.tip != null ? (
+                <Text style={styles.metaText}>
+                  Tip: {formatMoney(currentOrder.priceInfo.tip)}
                 </Text>
               ) : null}
               {currentOrder.priceInfo.totalPrice != null ? (
@@ -936,6 +1607,50 @@ export function App(): React.JSX.Element {
             ))
           )}
         </View>
+
+        {/* Debug Simulation Panel (__DEV__ builds only) */}
+        {typeof __DEV__ !== 'undefined' && __DEV__ ? (
+          <View style={styles.card}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.cardTitle}>
+                Simulate 0.7.0 Events (Debug)
+              </Text>
+              <Pressable
+                style={styles.debugToggleButton}
+                onPress={() => {
+                  setIsDebugPanelOpen((prev) => !prev);
+                }}
+              >
+                <Text style={styles.debugToggleText}>
+                  {isDebugPanelOpen ? 'Hide' : 'Show'}
+                </Text>
+              </Pressable>
+            </View>
+            {isDebugPanelOpen ? (
+              <>
+                <Text style={styles.metaText}>
+                  Simulate synthetic 0.7.0 event payloads and delegate callbacks
+                  locally without a live backend connection:
+                </Text>
+                <View style={styles.chipsContainer}>
+                  {DEBUG_SCENARIOS.map(({ scenario, label }) => (
+                    <Pressable
+                      key={scenario}
+                      style={styles.debugScenarioButton}
+                      onPress={() => {
+                        void handleSimulateDebugEvent(scenario);
+                      }}
+                    >
+                      <Text style={styles.debugScenarioButtonText}>
+                        {label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            ) : null}
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -1055,6 +1770,26 @@ const styles = StyleSheet.create({
   meterFill: {
     height: '100%',
     backgroundColor: '#2563eb',
+  },
+  togglePill: {
+    backgroundColor: '#f3f4f6',
+    borderColor: '#d1d5db',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  togglePillActive: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#6ee7b7',
+  },
+  togglePillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#4b5563',
+  },
+  togglePillTextActive: {
+    color: '#065f46',
   },
   endSessionBox: {
     marginTop: 8,
@@ -1211,6 +1946,12 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginTop: 6,
   },
+  loyaltyMemberText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#065f46',
+    marginTop: 4,
+  },
   orderItemRow: {
     paddingVertical: 6,
     borderBottomWidth: 1,
@@ -1253,6 +1994,30 @@ const styles = StyleSheet.create({
     color: '#374151',
     fontFamily: 'monospace',
     marginTop: 3,
+  },
+  debugToggleButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: '#f3f4f6',
+  },
+  debugToggleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  debugScenarioButton: {
+    backgroundColor: '#f5f3ff',
+    borderColor: '#ddd6fe',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  debugScenarioButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#5b21b6',
   },
 });
 

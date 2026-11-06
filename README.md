@@ -4,6 +4,8 @@ The foodai-ordering-mobile-sdk helps mobile apps integrate a Food Ordering AI Ag
 
 This SDK is designed to be used with Google Cloud services, including the Food Ordering AI Agent. By using this SDK, you agree to comply with the: [Google Cloud Platform Terms of Service](https://cloud.google.com/terms/).
 
+See [CHANGELOG.md](./CHANGELOG.md) for release notes across iOS, Android, and [React Native](./react-native/).
+
 ## License
 This project is licensed under the Apache License, Version 2.0. See the LICENSE file for details.
 

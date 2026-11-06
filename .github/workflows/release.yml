@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release tag to attach the tarball to (e.g. v0.6.0)'
+        description: 'Release tag to attach the tarball to (e.g. v0.7.0)'
         required: true
         type: string
 
@@ -34,6 +34,10 @@ jobs:
       - name: Run TypeScript typecheck
         working-directory: react-native
         run: npm run typecheck
+
+      - name: Run unit tests
+        working-directory: react-native
+        run: npm test
 
       - name: Build CommonJS, ESM, and TypeScript declarations
         working-directory: react-native

@@ -30,9 +30,16 @@ target 'FoodAiOrderingExample' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
-  # Note: `use_native_modules!` above automatically links `FoodaiOrderingReactNative`
-  # from `../..` via `example/react-native.config.js` (and its `prepare_command`
-  # downloads `foodai_orderingagent.xcframework` v0.6.0 from Lorry if not cached).
+  # `use_native_modules!` above autolinks `FoodaiOrderingReactNative` from `../..`
+  # as a `:path` development pod. Run `scripts/fetch-ios-sdk.sh` in `pre_install`
+  # so the matching `v0.7.0` XCFramework is always fetched (and any stale cached
+  # version replaced) before CocoaPods integrates targets.
+  pre_install do |_installer|
+    fetch_script = File.expand_path('../../scripts/fetch-ios-sdk.sh', __dir__)
+    unless system('sh', fetch_script)
+      raise 'Failed to fetch foodai_orderingagent.xcframework via scripts/fetch-ios-sdk.sh'
+    end
+  end
 
   post_install do |installer|
     react_native_post_install(

@@ -21,5 +21,10 @@
       "@google-cloud/foodai-ordering-react-native": ["../src/index"]
     }
   },
-  "include": ["src", "../src"]
+  "include": ["src", "../src"],
+  "exclude": [
+    "../src/**/__tests__/**",
+    "../src/**/*.test.ts",
+    "../src/**/*.spec.ts"
+  ]
 }

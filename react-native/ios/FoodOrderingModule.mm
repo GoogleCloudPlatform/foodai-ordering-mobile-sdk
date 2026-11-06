@@ -78,6 +78,8 @@ RCT_EXPORT_MODULE(FoodOrderingModule)
     [self emitOnOrderPricesRequested:body];
   } else if ([eventName isEqualToString:@"onOrderStatusRequested"]) {
     [self emitOnOrderStatusRequested:body];
+  } else if ([eventName isEqualToString:@"onLoyaltyRequested"]) {
+    [self emitOnLoyaltyRequested:body];
   }
 }
 
@@ -87,13 +89,6 @@ RCT_EXPORT_MODULE(FoodOrderingModule)
            resolve:(RCTPromiseResolveBlock)resolve
             reject:(RCTPromiseRejectBlock)reject {
   [_swiftImpl initialize:config resolver:resolve rejecter:reject];
-}
-
-- (void)setAuthToken:(NSString *)token
-              expiry:(NSString * _Nullable)expiry
-             resolve:(RCTPromiseResolveBlock)resolve
-              reject:(RCTPromiseRejectBlock)reject {
-  [_swiftImpl setAuthToken:token expiry:expiry resolver:resolve rejecter:reject];
 }
 
 - (void)respondToAuthTokenRequest:(NSString *)requestId
@@ -119,6 +114,11 @@ RCT_EXPORT_MODULE(FoodOrderingModule)
 - (void)respondToOrderStatus:(NSString *)requestId
                     response:(NSDictionary *)response {
   [_swiftImpl respondToOrderStatus:requestId response:response];
+}
+
+- (void)respondToLoyalty:(NSString *)requestId
+                response:(NSDictionary *)response {
+  [_swiftImpl respondToLoyalty:requestId response:response];
 }
 
 - (void)rejectDelegateRequest:(NSString *)requestId
