@@ -25,14 +25,9 @@ import { TurboModuleRegistry } from 'react-native';
 export interface Spec extends TurboModule {
   /**
    * Configures the native `FoodOrderingClient` with `gcpProjectName`, `location`,
-   * `brand`, `logLevel`, and optional initial auth token settings.
+   * `brand`, and optional `logLevel`.
    */
   initialize(config: CodegenTypes.UnsafeObject): Promise<void>;
-
-  /**
-   * Updates the cached OAuth2 / Bearer token on the native bridge.
-   */
-  setAuthToken(token: string, expiry: string | null): Promise<void>;
 
   /**
    * Resolves an on-demand `handleAuthTokenRequest` call from the native bridge.
@@ -70,6 +65,14 @@ export interface Spec extends TurboModule {
    * Resolves an on-demand `handleOrderStatus` call from the native bridge.
    */
   respondToOrderStatus(
+    requestId: string,
+    response: CodegenTypes.UnsafeObject
+  ): void;
+
+  /**
+   * Resolves an on-demand `handleLoyalty` call from the native bridge.
+   */
+  respondToLoyalty(
     requestId: string,
     response: CodegenTypes.UnsafeObject
   ): void;
@@ -151,6 +154,7 @@ export interface Spec extends TurboModule {
   readonly onSubmitOrderRequested: CodegenTypes.EventEmitter<CodegenTypes.UnsafeObject>;
   readonly onOrderPricesRequested: CodegenTypes.EventEmitter<CodegenTypes.UnsafeObject>;
   readonly onOrderStatusRequested: CodegenTypes.EventEmitter<CodegenTypes.UnsafeObject>;
+  readonly onLoyaltyRequested: CodegenTypes.EventEmitter<CodegenTypes.UnsafeObject>;
 }
 
 export type NativeFoodOrderingModuleSpec = Spec;

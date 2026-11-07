@@ -34,6 +34,30 @@ export type LogLevel =
   | 'OFF';
 
 /**
+ * Point in time independent of any time zone or local calendar, encoded as UTC
+ * epoch seconds and optional nanosecond fraction (`google.protobuf.Timestamp`).
+ * Aligned with Android `Timestamp` and iOS `Timestamp`.
+ */
+export interface Timestamp {
+  /** Seconds of UTC time since Unix epoch `1970-01-01T00:00:00Z`. */
+  seconds: number;
+  /** Non-negative fractions of a second at nanosecond resolution (`0` to `999,999,999`). */
+  nanos?: number;
+}
+
+/**
+ * Signed, fixed-length span of time represented as seconds and optional
+ * nanosecond fraction (`google.protobuf.Duration`).
+ * Aligned with Android `Duration` and iOS `Duration`.
+ */
+export interface Duration {
+  /** Signed seconds of the span of time. */
+  seconds: number;
+  /** Signed fractions of a second at nanosecond resolution. */
+  nanos?: number;
+}
+
+/**
  * An authorization token used to authenticate the Food Ordering AI Agent
  * bidirectional gRPC stream.
  * Aligned with Android `FoodOrderingClientAuthTokenResponse` and iOS `FoodOrderingClientAuthToken`.
@@ -50,14 +74,6 @@ export interface FoodOrderingClientAuthToken {
 
 /** Alias preserving backward compatibility for `FoodOrderingClientAuthToken`. */
 export type AuthTokenResponse = FoodOrderingClientAuthToken;
-
-/**
- * Callback invoked when the native SDK requests a fresh auth token for opening
- * or resuming the bidirectional ordering stream.
- */
-export type AuthTokenProvider = () => Promise<
-  FoodOrderingClientAuthToken | string
->;
 
 /**
  * A customized input to send to the ordering agent.
@@ -83,6 +99,10 @@ export interface FinalizeOrderResponse {
   paymentFlowEnabled: boolean;
   /** Additional payment information of the user, if available. */
   paymentInfo?: PaymentInfo;
+  /** Remaining amount due from the customer after discounts or loyalty redemptions. */
+  totalAmountDue?: Money;
+  /** Updated price breakdown finalized by the POS prior to order submission. */
+  orderPriceInfo?: OrderPriceInfo;
 }
 
 /**
@@ -105,6 +125,10 @@ export interface SubmitOrderRequest {
 export interface SubmitOrderResponse {
   /** Whether the order submission succeeded. */
   success: boolean;
+  /** Estimated duration until the submitted order will be ready, if provided by the POS. */
+  estimatedReadyDuration?: Duration;
+  /** Point-of-Sale (POS) external system identifier assigned to the submitted order. */
+  externalOrderId?: string;
 }
 
 /**
@@ -123,7 +147,7 @@ export interface OrderPricesRequest {
 export interface OrderPricesResponse {
   /** Whether the order prices were successfully retrieved. */
   success: boolean;
-  /** Pricing breakdown including subtotal, tax, discount, fees, and total price. */
+  /** Pricing breakdown including subtotal, tax, discount, fees, tip, and total price. */
   orderPriceInfo?: OrderPriceInfo;
 }
 
@@ -143,18 +167,99 @@ export interface OrderStatusResponse {
 }
 
 /**
+ * Category of a loyalty operation requested by or reported to the ordering agent.
+ * Aligned with Android `LoyaltyActionCategory` and iOS `LoyaltyActionCategory`.
+ */
+export type LoyaltyActionCategory =
+  | 'LOYALTY_ACTION_CATEGORY_UNSPECIFIED'
+  | 'LOYALTY_ACTION_CATEGORY_ADD_CODE'
+  | 'LOYALTY_ACTION_CATEGORY_IDENTIFY_CUSTOMER'
+  | 'LOYALTY_ACTION_CATEGORY_ADD_REWARD'
+  | 'LOYALTY_ACTION_CATEGORY_REDEEM_POINTS'
+  | 'LOYALTY_ACTION_CATEGORY_REMOVE_LOYALTY'
+  | 'UNKNOWN';
+
+/**
+ * Structured reason for rejecting a loyalty operation.
+ * Aligned with Android `ClientExecutionStatus.RejectionReason` and iOS `ClientExecutionStatus.RejectionReason`.
+ */
+export type ClientExecutionRejectionReason =
+  | 'REJECTION_REASON_UNSPECIFIED'
+  | 'REJECTION_REASON_INVALID_ID'
+  | 'REJECTION_REASON_COOLDOWN_PERIOD'
+  | 'REJECTION_REASON_INSUFFICIENT_FUNDS'
+  | 'REJECTION_REASON_INSUFFICIENT_POINTS'
+  | 'UNKNOWN';
+
+/**
+ * Status details reported by the host application when handling a client execution request.
+ * Aligned with Android `ClientExecutionStatus` and iOS `ClientExecutionStatus`.
+ */
+export interface ClientExecutionStatus {
+  /** The HTTP status code returned by the underlying provider, if any. */
+  httpStatusCode?: number;
+  /** The raw status or diagnostic message from the provider, if any. */
+  rawProviderMessage?: string;
+  /** Structured reason for rejecting a loyalty operation, if applicable. */
+  rejectionReason?: ClientExecutionRejectionReason;
+}
+
+/**
+ * Loyalty operation request dispatched by the ordering agent to the host application.
+ * Aligned with Android `LoyaltyRequest` and iOS `LoyaltyRequest`.
+ */
+export interface LoyaltyRequest {
+  /** The type of loyalty action requested. */
+  category: LoyaltyActionCategory;
+  /** Loyalty or promo code to add or remove, if applicable. */
+  code?: string;
+  /** Customer phone number used for identification, if provided. */
+  phoneNumber?: string;
+  /** Customer email address used for identification, if provided. */
+  email?: string;
+  /** Customer loyalty account identifier, if provided. */
+  loyaltyAccountId?: string;
+  /** Identifiers of rewards to apply or remove. */
+  rewardIds?: string[];
+  /** Menu product codes selected to fulfill reward slots. */
+  selectedProductCodes?: string[];
+  /** Quantity of loyalty points or balance to redeem, if applicable. */
+  loyaltyAmount?: LoyaltyAmount;
+}
+
+/**
+ * Client response returned for a `LoyaltyRequest`.
+ *
+ * Return `{}` when a customer identification check finds no signed-in loyalty member
+ * (guest session). When the loyalty provider rejects an operation (such as an invalid code
+ * or insufficient points), populate `clientExecutionStatus` with the rejection details.
+ *
+ * Aligned with Android `LoyaltyResponse` and iOS `LoyaltyResponse`.
+ */
+export interface LoyaltyResponse {
+  /** The category of the completed loyalty operation, if applicable. */
+  category?: LoyaltyActionCategory;
+  /** Updated loyalty profile, available rewards, and applied rewards or codes. */
+  loyaltyMetadata?: LoyaltyMetadata;
+  /** Partner-specific non-PII loyalty metadata for downstream integrations. */
+  customIntegrationAttributes?: Record<string, unknown>;
+  /** Optional provider status or structured rejection details. */
+  clientExecutionStatus?: ClientExecutionStatus;
+}
+
+/**
  * Boundary delegate interface between `FoodOrderingClient` and the React Native host application.
  *
  * Mirrors iOS `FoodOrderingClientDelegate` and Android `FoodOrderingClient` handler interfaces
  * (`FoodOrderingClientAuthTokenRequestHandler`, `FoodOrderingClientFinalizeOrderHandler`,
- * `FoodOrderingClientSubmitOrderHandler`, `FoodOrderingClientOrderPricesHandler`, and
- * `FoodOrderingClientOrderStatusHandler`).
+ * `FoodOrderingClientSubmitOrderHandler`, `FoodOrderingClientOrderPricesHandler`,
+ * `FoodOrderingClientOrderStatusHandler`, and `FoodOrderingClientLoyaltyHandler`).
  *
  * If an optional client execution callback (`handleFinalizeOrder`, `handleOrderPrices`,
- * `handleSubmitOrder`, or `handleOrderStatus`) is omitted, both Android and iOS bridges send
- * the standard default `ClientExecutionResult` (`finalizeOrder` defaults from
- * `sessionConfig.userInfo.paymentInfo`, and `submitOrder`/`orderPrices`/`orderStatus` respond
- * with `success: false`).
+ * `handleSubmitOrder`, `handleOrderStatus`, or `handleLoyalty`) is omitted, both Android and iOS
+ * bridges send the standard default `ClientExecutionResult` (`finalizeOrder` defaults from
+ * `sessionConfig.userInfo.paymentInfo`, `submitOrder`/`orderPrices`/`orderStatus` respond with
+ * `success: false`, and `handleLoyalty` reports an unregistered-handler status).
  */
 export interface FoodOrderingDelegate {
   /**
@@ -183,6 +288,12 @@ export interface FoodOrderingDelegate {
    * Handles a request from the agent to retrieve the order status.
    */
   handleOrderStatus?(request: OrderStatusRequest): Promise<OrderStatusResponse>;
+
+  /**
+   * Handles a loyalty operation request (customer identification, code application,
+   * reward redemption, point redemption, or loyalty removal).
+   */
+  handleLoyalty?(request: LoyaltyRequest): Promise<LoyaltyResponse>;
 
   /**
    * Handles updates to the normalized microphone audio level in the range `0.0..1.0`.
@@ -214,22 +325,12 @@ export interface FoodOrderingClientConfig {
    */
   logLevel?: LogLevel;
   /**
-   * Optional initial auth token to pre-seed the native client. For long-lived
-   * sessions and automatic foreground reconnection, prefer `delegate` or `authTokenProvider`.
-   */
-  authToken?: string;
-  /** Optional ISO 8601 expiration timestamp for `authToken`. */
-  authTokenExpiry?: string;
-  /**
-   * Optional delegate handling auth token requests, client execution requests
-   * (`finalizeOrder`, `orderPrices`, `submitOrder`, `orderStatus`), audio levels,
-   * and session events. Can also be set via `foodOrderingClient.setDelegate(delegate)`.
+   * Delegate handling auth token requests (`handleAuthTokenRequest`), client execution
+   * requests (`finalizeOrder`, `orderPrices`, `submitOrder`, `orderStatus`, `loyalty`),
+   * audio levels, and session events. May be supplied here or registered before
+   * `startSession()` via `foodOrderingClient.setDelegate(delegate)`.
    */
   delegate?: FoodOrderingDelegate;
-  /**
-   * Optional standalone auth token provider if a full `delegate` is not supplied.
-   */
-  authTokenProvider?: AuthTokenProvider;
 }
 
 /**
@@ -238,7 +339,10 @@ export interface FoodOrderingClientConfig {
  * Note: `ClientAppInfo` is automatically populated internally by the native SDKs.
  */
 export interface OrderingSessionConfig {
-  /** The store identifier where the order is being placed. */
+  /**
+   * The store identifier (short ID or qualified `projects/.../stores/...` resource path)
+   * where the order is being placed.
+   */
   storeId: string;
   /**
    * Optional custom session ID. When omitted, the native SDK generates a new
@@ -247,18 +351,21 @@ export interface OrderingSessionConfig {
   sessionId?: string;
   /** Optional daypart identifier (e.g., `"breakfast"`, `"lunch"`, `"dinner"`). */
   daypartId?: string;
-  /** Optional user profile, loyalty, payment, and saved delivery address info. */
+  /** Optional user profile, loyalty, payment, device location, and saved delivery address info. */
   userInfo?: UserInfo;
   /** Optional initial cart/order state when starting or resuming a session. */
   initialOrder?: Order;
   /** Optional feature gates to enable or disable specific ordering capabilities. */
   featureGate?: FeatureGates;
+  /** Convenience alias for `featureGate`. */
+  featureGates?: FeatureGates;
   /** Optional initial text utterance to kick off the conversation. */
   initialUtterance?: string;
 }
 
 /**
  * Feature gates to enable or disable specific food ordering capabilities.
+ * Aligned with Android `FeatureGates` and iOS `FeatureGates`.
  */
 export interface FeatureGates {
   triggerOfferEngineOnDemand?: boolean;
@@ -268,6 +375,10 @@ export interface FeatureGates {
   revampedPaymentFlowEnabled?: boolean;
   enableOrderStatusRetrieval?: boolean;
   updatedOrderStateEnabled?: boolean;
+  /** Enables conversational store search and mid-session store switching. */
+  storeSelectionEnabled?: boolean;
+  /** Enables promotional offers and loyalty capabilities for the session. */
+  offersAndLoyaltyEnabled?: boolean;
 }
 
 /**
@@ -283,10 +394,24 @@ export interface Money {
 }
 
 /**
- * Represents an image asset associated with a menu item or modifier.
+ * Represents an individual image source variant with optional dimensions.
+ */
+export interface ImageSource {
+  /** The URI of this image variant. */
+  uri: string;
+  /** Width of this image variant in pixels, or `0` if unspecified. */
+  width?: number;
+  /** Height of this image variant in pixels, or `0` if unspecified. */
+  height?: number;
+}
+
+/**
+ * Represents an image asset associated with a menu item, modifier, reward, or discount.
  */
 export interface Image {
   sourceUri: string;
+  /** Multi-resolution image source variants, if available. */
+  sources?: ImageSource[];
 }
 
 /**
@@ -295,6 +420,19 @@ export interface Image {
 export interface LatLng {
   latitude?: number;
   longitude?: number;
+}
+
+/**
+ * Real-time or recent geographic location of the user's device.
+ *
+ * Populate only when the host application holds foreground location permission.
+ * Aligned with Android `UserLocation` and iOS `UserLocation`.
+ */
+export interface UserLocation {
+  /** WGS84 geographic coordinates of the user's device. */
+  coordinates: LatLng;
+  /** Timestamp when the device captured this location fix. */
+  captureTime?: Timestamp;
 }
 
 /**
@@ -315,11 +453,57 @@ export interface PostalAddress {
 }
 
 /**
+ * Fulfillment method for an order or store operating hours.
+ * Aligned with Android `FulfillmentMethod` and iOS `FulfillmentMethod`.
+ */
+export type FulfillmentMethod =
+  | 'FULFILLMENT_METHOD_UNSPECIFIED'
+  | 'FULFILLMENT_METHOD_DINE_IN'
+  | 'FULFILLMENT_METHOD_PICKUP'
+  | 'FULFILLMENT_METHOD_DRIVE_THRU'
+  | 'FULFILLMENT_METHOD_DELIVERY'
+  | 'FULFILLMENT_METHOD_CURBSIDE'
+  | 'UNKNOWN';
+
+/**
+ * Validation status of a customer's delivery address.
+ * Aligned with Android `DeliveryAddressValidationStatus` and iOS `DeliveryAddressValidationStatus`.
+ */
+export type DeliveryAddressValidationStatus =
+  | 'VALIDATION_STATUS_UNSPECIFIED'
+  | 'VALIDATION_STATUS_VALID'
+  | 'VALIDATION_STATUS_INVALID'
+  | 'VALIDATION_STATUS_OUT_OF_RANGE'
+  | 'VALIDATION_STATUS_INCOMPLETE_ADDRESS'
+  | 'UNKNOWN';
+
+/**
+ * Fulfillment status of an applied promotional offer or reward.
+ * Aligned with Android `FulfillmentState` and iOS `FulfillmentState`.
+ */
+export type FulfillmentState =
+  | 'FULFILLMENT_STATE_UNSPECIFIED'
+  | 'FULFILLMENT_STATE_PARTIALLY_APPLIED'
+  | 'FULFILLMENT_STATE_FULLY_APPLIED'
+  | 'UNKNOWN';
+
+/**
+ * Execution state of the offer engine for an order.
+ * Aligned with Android `OfferEngineState` and iOS `OfferEngineState`.
+ */
+export type OfferEngineState =
+  | 'OFFER_ENGINE_STATE_UNSPECIFIED'
+  | 'OFFER_ENGINE_STATE_NOT_TRIGGERED'
+  | 'OFFER_ENGINE_STATE_NO_OFFERS_FOUND'
+  | 'OFFER_ENGINE_STATE_OFFERS_FOUND'
+  | 'UNKNOWN';
+
+/**
  * Represents a customer's delivery address.
  */
 export interface DeliveryAddress {
   address?: PostalAddress;
-  validationStatus?: string;
+  validationStatus?: DeliveryAddressValidationStatus | string;
   coordinates?: LatLng;
 }
 
@@ -331,7 +515,8 @@ export type PaymentMethod =
   | 'PAYMENT_METHOD_CREDIT_CARD'
   | 'PAYMENT_METHOD_CASH'
   | 'CREDIT_CARD'
-  | 'CASH';
+  | 'CASH'
+  | 'UNKNOWN';
 
 /**
  * Payment method details for the user or order.
@@ -397,6 +582,8 @@ export interface UserInfo {
   pastOrders?: PastOrder[];
   loyaltyInfo?: LoyaltyInfo;
   savedDeliveryAddress?: DeliveryAddress;
+  /** Current or last-known geographic location of the user's device. */
+  location?: UserLocation;
 }
 
 /**
@@ -487,7 +674,7 @@ export interface FulfilledItem {
  */
 export interface AppliedOffer {
   offerId?: string;
-  state?: string;
+  state?: FulfillmentState | string;
   fulfilledItems?: FulfilledItem[];
 }
 
@@ -528,12 +715,23 @@ export interface LoyaltySlotDetail {
 
 /**
  * Details of a redeemable loyalty reward.
+ * Aligned with Android `LoyaltyReward` and iOS `LoyaltyReward`.
  */
 export interface LoyaltyReward {
   rewardId?: string;
   displayName?: string;
   conditions?: LoyaltyConditionDetail[];
   slotDetails?: LoyaltySlotDetail[];
+  /** Loyalty points required to redeem this reward. */
+  redemptionCost?: LoyaltyAmount;
+  /** Human-readable summary or subtitle for the reward. */
+  description?: string;
+  /** Image associated with this reward. */
+  image?: Image;
+  /** Timestamp when this reward expires. */
+  expireTime?: Timestamp;
+  /** Partner-specific non-PII metadata and display attributes for downstream integrations. */
+  customIntegrationAttributes?: Record<string, unknown>;
 }
 
 /**
@@ -557,13 +755,15 @@ export interface OrderPriceInfo {
   discount?: Money;
   saving?: Money;
   fees?: Money;
+  /** Tip amount applied to the order. */
+  tip?: Money;
 }
 
 /**
  * Metadata about the offer engine's execution.
  */
 export interface OfferEngineMetadata {
-  state?: string;
+  state?: OfferEngineState | string;
   discountedOrderPriceInfo?: OrderPriceInfo;
 }
 
@@ -581,11 +781,14 @@ export interface OrderMetadata {
 
 /**
  * Information regarding order delivery, pickup, or drive-thru fulfillment.
+ * Aligned with Android `OrderFulfillment` and iOS `OrderFulfillment`.
  */
 export interface OrderFulfillment {
-  fulfillmentMethod?: string;
-  createTime?: string;
-  targetFulfillmentTime?: string;
+  fulfillmentMethod?: FulfillmentMethod | string;
+  /** Timestamp when the order session was initiated. */
+  createTime?: Timestamp;
+  /** Scheduled timestamp for future pickup or delivery, or undefined for ASAP. */
+  targetFulfillmentTime?: Timestamp;
 }
 
 /**
@@ -616,7 +819,11 @@ export interface Order {
 /**
  * Status of an order state update emitted by the agent.
  */
-export type OrderStateUpdateStatus = 'UNSPECIFIED' | 'SUCCEEDED' | 'FAILED';
+export type OrderStateUpdateStatus =
+  | 'UNSPECIFIED'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'UNKNOWN';
 
 /**
  * Represents an update to the order state returned by the agent.
@@ -655,7 +862,9 @@ export type SessionEndType =
   | 'CALLER_HANGUP'
   | 'REQUESTED_CHECKOUT'
   | 'REQUESTED_ORDER_STATUS'
-  | 'STORE_CLOSED';
+  | 'STORE_CLOSED'
+  | 'REQUESTED_STORE_SELECTION'
+  | 'UNKNOWN';
 
 /**
  * Payload returned when the agent ends the session.
@@ -666,6 +875,16 @@ export interface EndSession {
   reason: string;
   posResponse?: string;
   agentResponse?: string;
+  /** Operating schedule of the store when `type === 'STORE_CLOSED'`, if available. */
+  storeSchedule?: StoreSchedule;
+}
+
+/**
+ * Nutritional metadata for a menu item or modifier.
+ */
+export interface NutritionalInfo {
+  /** Human-readable calorie string (e.g., `"680 Cal"`). */
+  calories: string;
 }
 
 /**
@@ -677,6 +896,8 @@ export interface SuggestedItem {
   image?: Image;
   basePrice?: Money;
   integrationAttributes?: ItemIntegrationAttributes;
+  description?: string;
+  nutritionalInfo?: NutritionalInfo;
 }
 
 /**
@@ -692,6 +913,7 @@ export interface SuggestedModifier {
   integrationAttributes?: ModifierIntegrationAttributes;
   alreadyIncluded?: boolean;
   suggestedModifierGroups?: SuggestedModGroup[];
+  nutritionalInfo?: NutritionalInfo;
 }
 
 /**
@@ -723,8 +945,10 @@ export interface StoreAddress {
 
 /**
  * Day of the week.
+ * Aligned with Android `DayOfWeek` and iOS `DayOfWeek`.
  */
 export type DayOfWeek =
+  | 'DAY_OF_WEEK_UNSPECIFIED'
   | 'UNSPECIFIED'
   | 'MONDAY'
   | 'TUESDAY'
@@ -733,6 +957,7 @@ export type DayOfWeek =
   | 'FRIDAY'
   | 'SATURDAY'
   | 'SUNDAY'
+  | 'UNKNOWN'
   | number;
 
 /**
@@ -771,7 +996,7 @@ export interface TimeOfDayRange {
 }
 
 /**
- * Schedule of days, date ranges, and time ranges for a store.
+ * Schedule of days, date ranges, and time ranges for a store or discount.
  */
 export interface StoreSchedule {
   days: DayOfWeek[];
@@ -783,7 +1008,7 @@ export interface StoreSchedule {
  * Store operating hours for a specific fulfillment method.
  */
 export interface StoreHours {
-  fulfillmentMethod?: string;
+  fulfillmentMethod?: FulfillmentMethod | string;
   schedules: StoreSchedule[];
 }
 
@@ -831,6 +1056,78 @@ export interface SuggestedAction {
 }
 
 /**
+ * Type of a promotional discount.
+ * Aligned with Android `DiscountType` and iOS `DiscountType`.
+ */
+export type DiscountType =
+  | 'DISCOUNT_TYPE_UNSPECIFIED'
+  | 'BOGO'
+  | 'FIXED_OFF'
+  | 'PERCENT_OFF'
+  | 'FIXED_TOTAL'
+  | 'FREE_DELIVERY'
+  | 'UNKNOWN';
+
+/**
+ * Scope at which a promotional discount is applied.
+ * Aligned with Android `DiscountScope` and iOS `DiscountScope`.
+ */
+export type DiscountScope =
+  | 'SCOPE_UNSPECIFIED'
+  | 'ORDER'
+  | 'ITEM'
+  | 'UNKNOWN';
+
+/**
+ * Customer-facing display fields of a promotional discount suggested to the customer.
+ * Aligned with Android `Discount` and iOS `Discount`.
+ */
+export interface Discount {
+  /** Resource name of the discount. */
+  name: string;
+  /** User-facing name of the discount (e.g., `"20% Off Your Order"`). */
+  displayName: string;
+  /** Type of discount being applied. */
+  type: DiscountType;
+  /** Scope at which the discount is applied. */
+  scope: DiscountScope;
+  /** Schedule when the discount is active. */
+  schedule?: StoreSchedule;
+  /** Fixed monetary value of the discount or fixed total price. */
+  fixedAmount?: Money;
+  /** Percentage value of the discount (`0.0` to `100.0`) when `type === 'PERCENT_OFF'`. */
+  percent: number;
+  /** Maximum discount value a customer can receive when `type === 'PERCENT_OFF'`. */
+  maxDiscountValue?: Money;
+  /** Whether the discount is automatically applied when its criteria are met. */
+  autoApply: boolean;
+  /** Image to display for this discount in the UI. */
+  image?: Image;
+  /** Human-readable summary or subtitle for this discount. */
+  description: string;
+}
+
+/**
+ * A loyalty reward redemption or promotional discount suggested to the customer.
+ * Unrecognized future offer variants deserialize with neither field set (`{}`).
+ * Aligned with Android `SuggestedOffer` and iOS `SuggestedOffer`.
+ */
+export interface SuggestedOffer {
+  /** Point-based or wallet loyalty reward, if this offer represents a loyalty reward. */
+  loyaltyReward?: LoyaltyReward;
+  /** Store or dynamic promotional discount, if this offer represents a discount. */
+  discount?: Discount;
+}
+
+/**
+ * Promotional offers or loyalty rewards suggested to the customer.
+ * Aligned with Android `SuggestedOffers` and iOS `SuggestedOffers`.
+ */
+export interface SuggestedOffers {
+  offers: SuggestedOffer[];
+}
+
+/**
  * Contextual options suggested to the customer during the conversation.
  * Aligned with Android `SuggestedOptions` and iOS `SuggestedOptions`.
  */
@@ -840,6 +1137,7 @@ export interface SuggestedOptions {
   suggestedModifierGroups?: { modifierGroups: SuggestedModGroup[] };
   suggestedStores?: SuggestedStores;
   suggestedActions?: { actions: SuggestedAction[] };
+  suggestedOffers?: SuggestedOffers;
   customIntegrationAttributes?: Record<string, unknown>;
 }
 
@@ -847,7 +1145,7 @@ export interface SuggestedOptions {
  * Recommended orders returned by the agent.
  */
 export interface RecommendedOrder {
-  order: Order;
+  order?: Order;
 }
 
 export interface RecommendedOrders {
@@ -855,14 +1153,22 @@ export interface RecommendedOrders {
 }
 
 /**
- * Event payload emitted by the agent (e.g., `restartOrder`).
+ * Discriminated union representing an event emitted by the agent.
  * Aligned with Android `AgentEvent` and iOS `OrderResponse.AgentEvent`.
  */
-export interface AgentEvent {
-  restartOrder?: {
-    confirmationStep: boolean;
-  };
-}
+export type AgentEvent =
+  | {
+      type: 'RESTART_ORDER';
+      confirmationStep: boolean;
+    }
+  | {
+      type: 'STORE_CHANGE';
+      /** Resource path or identifier of the store selected for the active session. */
+      store: string;
+    }
+  | {
+      type: 'UNKNOWN';
+    };
 
 // ============================================================================
 // Event Payloads & Discriminated Union (`OrderResponse` / `FoodOrderingServiceEvent`)
@@ -889,6 +1195,8 @@ export interface OrderUpdateEvent {
 export interface SessionEndedEvent {
   sessionId: string;
   endSession: EndSession;
+  /** Convenience reference to `endSession.storeSchedule`, when present. */
+  storeSchedule?: StoreSchedule;
 }
 
 export interface TurnCompletedEvent {
@@ -928,11 +1236,11 @@ export interface InterruptionSignalEvent {
  * Payload emitted when the ordering session lifecycle state changes:
  * - `'STARTED'`: Session started once the initial stream connects and the
  *   session configuration is delivered.
- * - `'PAUSED'`: Session paused when the app moves to the background (emitted
- *   strictly alternately with `'RESUMED'`).
- * - `'RESUMED'`: Session resumed when the app returns to the foreground, emitted
- *   once the bidirectional gRPC stream reconnects and the session configuration
- *   is delivered to the stream.
+ * - `'PAUSED'`: Session paused when the app moves to the background or loses
+ *   network connectivity (emitted strictly alternately with `'RESUMED'`).
+ * - `'RESUMED'`: Session resumed when the app returns to the foreground or
+ *   restores connectivity, emitted once the bidirectional gRPC stream reconnects
+ *   and the session configuration is delivered to the stream.
  */
 export interface SessionLifecycleEvent {
   sessionId: string;

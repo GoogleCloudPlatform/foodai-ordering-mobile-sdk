@@ -14,7 +14,10 @@
 
 package com.google.cloud.foodai.ordering.reactnative
 
+import android.content.Context
 import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.JavaOnlyArray
+import com.facebook.react.bridge.JavaOnlyMap
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -26,10 +29,22 @@ import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.module.annotations.ReactModule
 import com.google.android.foodorderingaiagent.FoodOrderingClient
+import com.google.android.foodorderingaiagent.models.AccrualForecast
 import com.google.android.foodorderingaiagent.models.AgentEvent
+import com.google.android.foodorderingaiagent.models.AppliedOffer
+import com.google.android.foodorderingaiagent.models.ClientExecutionStatus
+import com.google.android.foodorderingaiagent.models.CustomerInformation
 import com.google.android.foodorderingaiagent.models.CustomizedInput
+import com.google.android.foodorderingaiagent.models.DateRange
+import com.google.android.foodorderingaiagent.models.DayOfWeek
 import com.google.android.foodorderingaiagent.models.DeliveryAddress
+import com.google.android.foodorderingaiagent.models.DeliveryAddressValidationStatus
+import com.google.android.foodorderingaiagent.models.Discount
+import com.google.android.foodorderingaiagent.models.DiscountScope
+import com.google.android.foodorderingaiagent.models.DiscountType
+import com.google.android.foodorderingaiagent.models.Duration
 import com.google.android.foodorderingaiagent.models.EndSession
+import com.google.android.foodorderingaiagent.models.EndType
 import com.google.android.foodorderingaiagent.models.FeatureGates
 import com.google.android.foodorderingaiagent.models.FinalizeOrderRequest
 import com.google.android.foodorderingaiagent.models.FinalizeOrderResponse
@@ -38,17 +53,32 @@ import com.google.android.foodorderingaiagent.models.FoodOrderingClientAuthToken
 import com.google.android.foodorderingaiagent.models.FoodOrderingClientAuthTokenResult
 import com.google.android.foodorderingaiagent.models.FoodOrderingClientConfig
 import com.google.android.foodorderingaiagent.models.FoodOrderingClientFinalizeOrderHandler
+import com.google.android.foodorderingaiagent.models.FoodOrderingClientLoyaltyHandler
 import com.google.android.foodorderingaiagent.models.FoodOrderingClientOrderPricesHandler
 import com.google.android.foodorderingaiagent.models.FoodOrderingClientOrderStatusHandler
 import com.google.android.foodorderingaiagent.models.FoodOrderingClientSubmitOrderHandler
+import com.google.android.foodorderingaiagent.models.FulfilledItem
+import com.google.android.foodorderingaiagent.models.FulfillmentMethod
+import com.google.android.foodorderingaiagent.models.FulfillmentState
 import com.google.android.foodorderingaiagent.models.Image
+import com.google.android.foodorderingaiagent.models.ImageSource
 import com.google.android.foodorderingaiagent.models.ItemIntegrationAttributes
 import com.google.android.foodorderingaiagent.models.LatLng
+import com.google.android.foodorderingaiagent.models.LoyaltyActionCategory
 import com.google.android.foodorderingaiagent.models.LoyaltyAmount
+import com.google.android.foodorderingaiagent.models.LoyaltyConditionDetail
 import com.google.android.foodorderingaiagent.models.LoyaltyInfo
+import com.google.android.foodorderingaiagent.models.LoyaltyMetadata
+import com.google.android.foodorderingaiagent.models.LoyaltyRequest
+import com.google.android.foodorderingaiagent.models.LoyaltyResponse
+import com.google.android.foodorderingaiagent.models.LoyaltyReward
+import com.google.android.foodorderingaiagent.models.LoyaltySlotDetail
 import com.google.android.foodorderingaiagent.models.ModifierGroupIntegrationAttributes
 import com.google.android.foodorderingaiagent.models.ModifierIntegrationAttributes
 import com.google.android.foodorderingaiagent.models.Money
+import com.google.android.foodorderingaiagent.models.NutritionalInfo
+import com.google.android.foodorderingaiagent.models.OfferEngineMetadata
+import com.google.android.foodorderingaiagent.models.OfferEngineState
 import com.google.android.foodorderingaiagent.models.Order
 import com.google.android.foodorderingaiagent.models.OrderFulfillment
 import com.google.android.foodorderingaiagent.models.OrderItem
@@ -61,6 +91,7 @@ import com.google.android.foodorderingaiagent.models.OrderPriceInfo
 import com.google.android.foodorderingaiagent.models.OrderPricesRequest
 import com.google.android.foodorderingaiagent.models.OrderPricesResponse
 import com.google.android.foodorderingaiagent.models.OrderResponse
+import com.google.android.foodorderingaiagent.models.OrderStateUpdateStatus
 import com.google.android.foodorderingaiagent.models.OrderStatusRequest
 import com.google.android.foodorderingaiagent.models.OrderStatusResponse
 import com.google.android.foodorderingaiagent.models.OrderingSessionConfig
@@ -70,45 +101,154 @@ import com.google.android.foodorderingaiagent.models.PaymentMethod
 import com.google.android.foodorderingaiagent.models.PostalAddress
 import com.google.android.foodorderingaiagent.models.RecommendedOrders
 import com.google.android.foodorderingaiagent.models.SpeechRecognition
+import com.google.android.foodorderingaiagent.models.StoreDate
+import com.google.android.foodorderingaiagent.models.StoreSchedule
 import com.google.android.foodorderingaiagent.models.SubmitOrderPaymentInfo
 import com.google.android.foodorderingaiagent.models.SubmitOrderRequest
 import com.google.android.foodorderingaiagent.models.SubmitOrderResponse
 import com.google.android.foodorderingaiagent.models.SuggestedModGroup
 import com.google.android.foodorderingaiagent.models.SuggestedModifier
+import com.google.android.foodorderingaiagent.models.SuggestedOffer
+import com.google.android.foodorderingaiagent.models.SuggestedOffers
 import com.google.android.foodorderingaiagent.models.SuggestedOptions
 import com.google.android.foodorderingaiagent.models.SuggestedStores
+import com.google.android.foodorderingaiagent.models.TimeOfDay
+import com.google.android.foodorderingaiagent.models.TimeOfDayRange
+import com.google.android.foodorderingaiagent.models.Timestamp
 import com.google.android.foodorderingaiagent.models.TippingInfo
 import com.google.android.foodorderingaiagent.models.UpdatedOrderState
 import com.google.android.foodorderingaiagent.models.UserInfo
+import com.google.android.foodorderingaiagent.models.UserLocation
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.logging.Level
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+
+/** Internal seam over [FoodOrderingClient] enabling deterministic JVM unit testing. */
+internal interface FoodOrderingNativeClient {
+  val audioLevelFlow: StateFlow<Float>
+
+  suspend fun requestMicrophonePermission(context: Context): Boolean
+
+  fun startSession(
+    context: Context,
+    scope: CoroutineScope,
+    agentConfig: OrderingSessionConfig,
+  ): Flow<OrderResponse>
+
+  suspend fun endSession(waitUntilComplete: Boolean)
+
+  fun pauseMicrophone(): OrderResponse.Error?
+
+  fun resumeMicrophone(): OrderResponse.Error?
+
+  fun sendText(text: String)
+
+  fun updateOrderState(order: Order)
+
+  fun sendCustomizedInput(input: CustomizedInput)
+
+  fun release()
+}
+
+/** Handler bundle passed when constructing a [FoodOrderingNativeClient]. */
+internal data class FoodOrderingClientHandlers(
+  val authTokenRequestHandler: FoodOrderingClientAuthTokenRequestHandler,
+  val finalizeOrderHandler: FoodOrderingClientFinalizeOrderHandler,
+  val submitOrderHandler: FoodOrderingClientSubmitOrderHandler,
+  val orderPricesHandler: FoodOrderingClientOrderPricesHandler,
+  val orderStatusHandler: FoodOrderingClientOrderStatusHandler,
+  val loyaltyHandler: FoodOrderingClientLoyaltyHandler?,
+)
+
+private class RealFoodOrderingNativeClient(private val delegate: FoodOrderingClient) :
+  FoodOrderingNativeClient {
+  override val audioLevelFlow: StateFlow<Float>
+    get() = delegate.audioLevelFlow
+
+  override suspend fun requestMicrophonePermission(context: Context): Boolean =
+    delegate.requestMicrophonePermission(context)
+
+  override fun startSession(
+    context: Context,
+    scope: CoroutineScope,
+    agentConfig: OrderingSessionConfig,
+  ): Flow<OrderResponse> = delegate.startSession(context, scope, agentConfig)
+
+  override suspend fun endSession(waitUntilComplete: Boolean) =
+    delegate.endSession(waitUntilComplete)
+
+  override fun pauseMicrophone(): OrderResponse.Error? = delegate.pauseMicrophone()
+
+  override fun resumeMicrophone(): OrderResponse.Error? = delegate.resumeMicrophone()
+
+  override fun sendText(text: String) = delegate.sendText(text)
+
+  override fun updateOrderState(order: Order) = delegate.updateOrderState(order)
+
+  override fun sendCustomizedInput(input: CustomizedInput) = delegate.sendCustomizedInput(input)
+
+  override fun release() = delegate.release()
+}
 
 /**
  * React Native New Architecture TurboModule bridging JavaScript calls, delegate callbacks, and
  * typed Codegen `EventEmitter` events to the Android [FoodOrderingClient].
  */
 @ReactModule(name = FoodOrderingModule.NAME)
-class FoodOrderingModule(
+class FoodOrderingModule
+internal constructor(
   private val reactContext: ReactApplicationContext,
+  mainDispatcher: CoroutineDispatcher,
+  private val sdkConfigurer: (FoodOrderingClientConfig) -> Unit,
+  private val clientFactory: (FoodOrderingClientHandlers) -> FoodOrderingNativeClient,
+  private val eventSink: ((String, ReadableMap) -> Unit)?,
+  private val delegateRequestTimeoutMs: Long,
 ) : NativeFoodOrderingSpec(reactContext), LifecycleEventListener {
 
-  private val moduleScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-  private var client: FoodOrderingClient? = null
+  constructor(
+    reactContext: ReactApplicationContext
+  ) : this(
+    reactContext = reactContext,
+    mainDispatcher = Dispatchers.Main.immediate,
+    sdkConfigurer = { cfg -> FoodOrderingClient.configure(cfg) },
+    clientFactory = { handlers ->
+      RealFoodOrderingNativeClient(
+        FoodOrderingClient(
+          authTokenRequestHandler = handlers.authTokenRequestHandler,
+          finalizeOrderHandler = handlers.finalizeOrderHandler,
+          submitOrderHandler = handlers.submitOrderHandler,
+          orderPricesHandler = handlers.orderPricesHandler,
+          orderStatusHandler = handlers.orderStatusHandler,
+          loyaltyHandler = handlers.loyaltyHandler,
+        )
+      )
+    },
+    eventSink = null,
+    delegateRequestTimeoutMs = DELEGATE_REQUEST_TIMEOUT_MS,
+  )
+
+  private val moduleScope = CoroutineScope(SupervisorJob() + mainDispatcher)
+  private var client: FoodOrderingNativeClient? = null
   private var sessionJob: Job? = null
   private var audioLevelJob: Job? = null
 
-  @Volatile private var cachedToken: String? = null
-  @Volatile private var cachedTokenExpiry: String? = null
+  @Volatile private var initializedSdkConfig: FoodOrderingClientConfig? = null
+  @Volatile private var clientHasLoyaltyHandler: Boolean = false
+  @Volatile private var isSessionActive: Boolean = false
+  @Volatile private var activeSessionId: String? = null
   @Volatile private var latestSessionUserInfo: UserInfo? = null
 
   private val pendingDelegateRequests =
@@ -133,16 +273,7 @@ class FoodOrderingModule(
         configMap.getString("brand")?.takeIf { it.isNotBlank() }
           ?: throw IllegalArgumentException("brand is required.")
       val logLevel = parseLogLevel(configMap.getOptionalString("logLevel"))
-
-      if (configMap.hasKey("authToken") && !configMap.isNull("authToken")) {
-        cachedToken = configMap.getString("authToken")
-        cachedTokenExpiry =
-          if (configMap.hasKey("authTokenExpiry") && !configMap.isNull("authTokenExpiry")) {
-            configMap.getString("authTokenExpiry")
-          } else {
-            null
-          }
-      }
+      val hasLoyaltyHandler = configMap.getOptionalBoolean("__hasLoyaltyHandler") ?: false
 
       val sdkConfig =
         FoodOrderingClientConfig(
@@ -151,11 +282,21 @@ class FoodOrderingModule(
           brand = brand,
           logLevel = logLevel,
         )
-      FoodOrderingClient.configure(sdkConfig)
+      sdkConfigurer(sdkConfig)
+      initializedSdkConfig = sdkConfig
+      recreateClient(hasLoyaltyHandler)
+      promise.resolve(null)
+    } catch (e: Exception) {
+      promise.reject("INITIALIZE_ERROR", e.message ?: "Failed to initialize FoodOrderingClient", e)
+    }
+  }
 
-      client?.release()
-      client =
-        FoodOrderingClient(
+  private fun recreateClient(hasLoyaltyHandler: Boolean): FoodOrderingNativeClient {
+    client?.release()
+    clientHasLoyaltyHandler = hasLoyaltyHandler
+    val created =
+      clientFactory(
+        FoodOrderingClientHandlers(
           authTokenRequestHandler =
             FoodOrderingClientAuthTokenRequestHandler { requestAuthTokenFromBridge() },
           finalizeOrderHandler =
@@ -174,18 +315,16 @@ class FoodOrderingModule(
             FoodOrderingClientOrderStatusHandler { request ->
               requestOrderStatusFromBridge(request)
             },
+          loyaltyHandler =
+            if (hasLoyaltyHandler) {
+              FoodOrderingClientLoyaltyHandler { request -> requestLoyaltyFromBridge(request) }
+            } else {
+              null
+            },
         )
-      promise.resolve(null)
-    } catch (e: Exception) {
-      promise.reject("INITIALIZE_ERROR", e.message ?: "Failed to initialize FoodOrderingClient", e)
-    }
-  }
-
-  @ReactMethod
-  override fun setAuthToken(token: String, expiry: String?, promise: Promise) {
-    cachedToken = token
-    cachedTokenExpiry = expiry
-    promise.resolve(null)
+      )
+    client = created
+    return created
   }
 
   // ==========================================================================
@@ -194,10 +333,6 @@ class FoodOrderingModule(
 
   @ReactMethod
   override fun respondToAuthTokenRequest(requestId: String, response: ReadableMap) {
-    response.getOptionalString("token")?.let { token ->
-      cachedToken = token
-      cachedTokenExpiry = response.getOptionalString("expiry")
-    }
     pendingDelegateRequests.remove(requestId)?.complete(response)
   }
 
@@ -218,6 +353,11 @@ class FoodOrderingModule(
 
   @ReactMethod
   override fun respondToOrderStatus(requestId: String, response: ReadableMap) {
+    pendingDelegateRequests.remove(requestId)?.complete(response)
+  }
+
+  @ReactMethod
+  override fun respondToLoyalty(requestId: String, response: ReadableMap) {
     pendingDelegateRequests.remove(requestId)?.complete(response)
   }
 
@@ -255,8 +395,8 @@ class FoodOrderingModule(
 
   @ReactMethod
   override fun startSession(sessionConfigMap: ReadableMap, promise: Promise) {
-    val activeClient = client
-    if (activeClient == null) {
+    val currentClient = client
+    if (currentClient == null) {
       promise.reject(
         "NOT_INITIALIZED",
         "FoodOrderingClient is not initialized. Call initialize() first.",
@@ -272,49 +412,77 @@ class FoodOrderingModule(
         sessionConfigMap.getOptionalString("sessionId")?.takeIf { it.isNotBlank() }
       val resolvedSessionId = customSessionId ?: "android-session-${UUID.randomUUID()}"
       val userInfo = sessionConfigMap.getOptionalMap("userInfo")?.toUserInfo()
+      val featureGateMap =
+        sessionConfigMap.getOptionalMap("featureGate")
+          ?: sessionConfigMap.getOptionalMap("featureGates")
+
+      val wasSessionActive = isSessionActive
+      val requestedHasLoyaltyHandler =
+        sessionConfigMap.getOptionalBoolean("__hasLoyaltyHandler") ?: clientHasLoyaltyHandler
+      val activeClient =
+        if (
+          !wasSessionActive &&
+            requestedHasLoyaltyHandler != clientHasLoyaltyHandler &&
+            initializedSdkConfig != null
+        ) {
+          clearActiveSessionState()
+          recreateClient(requestedHasLoyaltyHandler)
+        } else {
+          currentClient
+        }
 
       val sessionConfig =
         OrderingSessionConfig(
           storeId = storeId,
           sessionId = resolvedSessionId,
           userInfo = userInfo,
-          featureGate = sessionConfigMap.getOptionalMap("featureGate")?.toFeatureGates(),
+          featureGate = featureGateMap?.toFeatureGates(),
           initialUtterance = sessionConfigMap.getOptionalString("initialUtterance"),
           daypartId = sessionConfigMap.getOptionalString("daypartId"),
           initialOrder = sessionConfigMap.getOptionalMap("initialOrder")?.toOrder(),
         )
 
-      if (sessionJob?.isActive != true) {
+      if (!wasSessionActive) {
+        sessionJob?.cancel()
+        sessionJob = null
         latestSessionUserInfo = userInfo
+        activeSessionId = resolvedSessionId
+        isSessionActive = true
       }
 
       val context = reactContext.currentActivity ?: reactContext
       val responseFlow = activeClient.startSession(context, moduleScope, sessionConfig)
 
-      if (sessionJob?.isActive != true) {
-        sessionJob =
-          moduleScope.launch {
+      if (!wasSessionActive) {
+        val job =
+          moduleScope.launch(start = CoroutineStart.LAZY) {
             responseFlow
               .catch { throwable ->
+                val currentId = activeSessionId ?: resolvedSessionId
                 emitErrorEvent(
-                  sessionId = resolvedSessionId,
+                  sessionId = currentId,
                   code = "STREAM_CLOSED",
                   message = throwable.message ?: "Ordering stream terminated with an error.",
                 )
+                clearActiveSessionState()
               }
               .collect { response -> handleOrderResponse(response) }
           }
+        sessionJob = job
+        job.start()
       }
 
-      if (audioLevelJob?.isActive != true) {
-        audioLevelJob =
-          moduleScope.launch {
+      if (isSessionActive && (activeClient !== currentClient || audioLevelJob?.isActive != true)) {
+        audioLevelJob?.cancel()
+        val audioJob =
+          moduleScope.launch(start = CoroutineStart.LAZY) {
             activeClient.audioLevelFlow.collect { level ->
-              val payload =
-                Arguments.createMap().apply { putDouble("audioLevel", level.toDouble()) }
-              emitOnAudioLevel(payload)
+              val payload = createMap().apply { putDouble("audioLevel", level.toDouble()) }
+              dispatchOnAudioLevel(payload)
             }
           }
+        audioLevelJob = audioJob
+        audioJob.start()
       }
 
       promise.resolve(resolvedSessionId)
@@ -429,11 +597,7 @@ class FoodOrderingModule(
     moduleScope.launch {
       try {
         activeClient.endSession(waitUntilComplete)
-        sessionJob?.cancel()
-        sessionJob = null
-        audioLevelJob?.cancel()
-        audioLevelJob = null
-        latestSessionUserInfo = null
+        clearActiveSessionState()
         promise.resolve(null)
       } catch (e: Exception) {
         promise.reject("END_SESSION_ERROR", e.message ?: "Failed to end session", e)
@@ -465,12 +629,27 @@ class FoodOrderingModule(
     moduleScope.cancel()
   }
 
-  private fun cleanup() {
+  private fun clearActiveSessionState() {
+    isSessionActive = false
+    activeSessionId = null
+    latestSessionUserInfo = null
     sessionJob?.cancel()
     sessionJob = null
     audioLevelJob?.cancel()
     audioLevelJob = null
-    latestSessionUserInfo = null
+  }
+
+  private fun OrderResponse.Error.isTerminalSessionError(): Boolean =
+    when (this) {
+      is OrderResponse.Error.SessionAlreadyStarted,
+      is OrderResponse.Error.SessionNotStarted -> false
+      else -> true
+    }
+
+  private fun cleanup() {
+    clearActiveSessionState()
+    initializedSdkConfig = null
+    clientHasLoyaltyHandler = false
     client?.release()
     client = null
     pendingDelegateRequests.values.forEach {
@@ -480,20 +659,100 @@ class FoodOrderingModule(
   }
 
   // ==========================================================================
+  // Event Dispatch Helpers (Codegen JSI or Test Sink)
+  // ==========================================================================
+
+  private fun dispatchOnSessionStarted(payload: ReadableMap) {
+    eventSink?.invoke("onSessionStarted", payload) ?: emitOnSessionStarted(payload)
+  }
+
+  private fun dispatchOnOrderUpdate(payload: ReadableMap) {
+    eventSink?.invoke("onOrderUpdate", payload) ?: emitOnOrderUpdate(payload)
+  }
+
+  private fun dispatchOnSessionEnded(payload: ReadableMap) {
+    eventSink?.invoke("onSessionEnded", payload) ?: emitOnSessionEnded(payload)
+  }
+
+  private fun dispatchOnTurnCompleted(payload: ReadableMap) {
+    eventSink?.invoke("onTurnCompleted", payload) ?: emitOnTurnCompleted(payload)
+  }
+
+  private fun dispatchOnError(payload: ReadableMap) {
+    eventSink?.invoke("onError", payload) ?: emitOnError(payload)
+  }
+
+  private fun dispatchOnSpeechRecognition(payload: ReadableMap) {
+    eventSink?.invoke("onSpeechRecognition", payload) ?: emitOnSpeechRecognition(payload)
+  }
+
+  private fun dispatchOnAgentText(payload: ReadableMap) {
+    eventSink?.invoke("onAgentText", payload) ?: emitOnAgentText(payload)
+  }
+
+  private fun dispatchOnSuggestedOptions(payload: ReadableMap) {
+    eventSink?.invoke("onSuggestedOptions", payload) ?: emitOnSuggestedOptions(payload)
+  }
+
+  private fun dispatchOnRecommendedOrders(payload: ReadableMap) {
+    eventSink?.invoke("onRecommendedOrders", payload) ?: emitOnRecommendedOrders(payload)
+  }
+
+  private fun dispatchOnAgentEvent(payload: ReadableMap) {
+    eventSink?.invoke("onAgentEvent", payload) ?: emitOnAgentEvent(payload)
+  }
+
+  private fun dispatchOnInterruptionSignal(payload: ReadableMap) {
+    eventSink?.invoke("onInterruptionSignal", payload) ?: emitOnInterruptionSignal(payload)
+  }
+
+  private fun dispatchOnSessionLifecycle(payload: ReadableMap) {
+    eventSink?.invoke("onSessionLifecycle", payload) ?: emitOnSessionLifecycle(payload)
+  }
+
+  private fun dispatchOnAudioLevel(payload: ReadableMap) {
+    eventSink?.invoke("onAudioLevel", payload) ?: emitOnAudioLevel(payload)
+  }
+
+  private fun dispatchOnAuthTokenRequested(payload: ReadableMap) {
+    eventSink?.invoke("onAuthTokenRequested", payload) ?: emitOnAuthTokenRequested(payload)
+  }
+
+  private fun dispatchOnFinalizeOrderRequested(payload: ReadableMap) {
+    eventSink?.invoke("onFinalizeOrderRequested", payload) ?: emitOnFinalizeOrderRequested(payload)
+  }
+
+  private fun dispatchOnSubmitOrderRequested(payload: ReadableMap) {
+    eventSink?.invoke("onSubmitOrderRequested", payload) ?: emitOnSubmitOrderRequested(payload)
+  }
+
+  private fun dispatchOnOrderPricesRequested(payload: ReadableMap) {
+    eventSink?.invoke("onOrderPricesRequested", payload) ?: emitOnOrderPricesRequested(payload)
+  }
+
+  private fun dispatchOnOrderStatusRequested(payload: ReadableMap) {
+    eventSink?.invoke("onOrderStatusRequested", payload) ?: emitOnOrderStatusRequested(payload)
+  }
+
+  private fun dispatchOnLoyaltyRequested(payload: ReadableMap) {
+    eventSink?.invoke("onLoyaltyRequested", payload) ?: emitOnLoyaltyRequested(payload)
+  }
+
+  // ==========================================================================
   // Native -> JS Delegate Request Helpers
   // ==========================================================================
 
   private suspend fun awaitDelegateResponse(
     emitRequest: (ReadableMap) -> Unit,
     requestMap: WritableMap,
-    timeoutMs: Long = DELEGATE_REQUEST_TIMEOUT_MS,
+    timeoutMs: Long = delegateRequestTimeoutMs,
   ): ReadableMap {
     val requestId = UUID.randomUUID().toString()
     val deferred = CompletableDeferred<ReadableMap>()
     pendingDelegateRequests[requestId] = deferred
 
     val envelope =
-      Arguments.createMap().apply {
+      createMap().apply {
         putString("requestId", requestId)
         putMap("request", requestMap)
       }
@@ -507,45 +766,35 @@ class FoodOrderingModule(
   }
 
   private suspend fun requestAuthTokenFromBridge(): FoodOrderingClientAuthTokenResult {
-    try {
+    return try {
       val responseMap =
         awaitDelegateResponse(
-          emitRequest = ::emitOnAuthTokenRequested,
-          requestMap = Arguments.createMap(),
+          emitRequest = ::dispatchOnAuthTokenRequested,
+          requestMap = createMap(),
         )
       val token = responseMap.getOptionalString("token")?.takeIf { it.isNotBlank() }
       val expiry = responseMap.getOptionalString("expiry")
       if (token != null) {
-        cachedToken = token
-        cachedTokenExpiry = expiry
-        return FoodOrderingClientAuthTokenResult(
+        FoodOrderingClientAuthTokenResult(
           success = true,
           authToken = FoodOrderingClientAuthTokenResponse(token = token, expiry = expiry),
         )
+      } else {
+        FoodOrderingClientAuthTokenResult(success = false, authToken = null)
       }
     } catch (_: Exception) {
-      // Fall back to pre-seeded cachedToken if set via setAuthToken / initialize.
+      FoodOrderingClientAuthTokenResult(success = false, authToken = null)
     }
-
-    val fallbackToken = cachedToken
-    if (!fallbackToken.isNullOrBlank()) {
-      return FoodOrderingClientAuthTokenResult(
-        success = true,
-        authToken =
-          FoodOrderingClientAuthTokenResponse(token = fallbackToken, expiry = cachedTokenExpiry),
-      )
-    }
-    return FoodOrderingClientAuthTokenResult(success = false, authToken = null)
   }
 
   private suspend fun requestFinalizeOrderFromBridge(
-    request: FinalizeOrderRequest
+    @Suppress("UNUSED_PARAMETER") request: FinalizeOrderRequest
   ): FinalizeOrderResponse {
     return try {
       val responseMap =
         awaitDelegateResponse(
-          emitRequest = ::emitOnFinalizeOrderRequested,
-          requestMap = Arguments.createMap(),
+          emitRequest = ::dispatchOnFinalizeOrderRequested,
+          requestMap = createMap(),
         )
       responseMap.toFinalizeOrderResponse()
     } catch (e: Exception) {
@@ -563,7 +812,7 @@ class FoodOrderingModule(
     return try {
       val responseMap =
         awaitDelegateResponse(
-          emitRequest = ::emitOnSubmitOrderRequested,
+          emitRequest = ::dispatchOnSubmitOrderRequested,
           requestMap = request.toWritableMap(),
         )
       responseMap.toSubmitOrderResponse()
@@ -578,7 +827,7 @@ class FoodOrderingModule(
     return try {
       val responseMap =
         awaitDelegateResponse(
-          emitRequest = ::emitOnOrderPricesRequested,
+          emitRequest = ::dispatchOnOrderPricesRequested,
           requestMap = request.toWritableMap(),
         )
       responseMap.toOrderPricesResponse()
@@ -588,13 +837,13 @@ class FoodOrderingModule(
   }
 
   private suspend fun requestOrderStatusFromBridge(
-    request: OrderStatusRequest
+    @Suppress("UNUSED_PARAMETER") request: OrderStatusRequest
   ): OrderStatusResponse {
     return try {
       val responseMap =
         awaitDelegateResponse(
-          emitRequest = ::emitOnOrderStatusRequested,
-          requestMap = Arguments.createMap(),
+          emitRequest = ::dispatchOnOrderStatusRequested,
+          requestMap = createMap(),
         )
       responseMap.toOrderStatusResponse()
     } catch (_: Exception) {
@@ -602,12 +851,33 @@ class FoodOrderingModule(
     }
   }
 
+  private suspend fun requestLoyaltyFromBridge(request: LoyaltyRequest): LoyaltyResponse {
+    val responseMap =
+      awaitDelegateResponse(
+        emitRequest = ::dispatchOnLoyaltyRequested,
+        requestMap = request.toWritableMap(),
+      )
+    if (responseMap.getOptionalBoolean("__unhandled") == true) {
+      throw IllegalStateException("Loyalty handler is not registered.")
+    }
+    if (responseMap.getOptionalBoolean("__error") == true) {
+      throw IllegalStateException(
+        responseMap.getOptionalString("errorMessage") ?: "Loyalty handler failed."
+      )
+    }
+    return responseMap.toLoyaltyResponse()
+  }
+
   private fun defaultFinalizeOrderResponse(): FinalizeOrderResponse {
     val paymentInfo = latestSessionUserInfo?.paymentInfo ?: return FinalizeOrderResponse()
     val lastFourDigits = paymentInfo.creditCardLastFourDigits?.takeIf { it.isNotEmpty() }
     val paymentMethod =
-      paymentInfo.paymentMethod?.takeIf { it != PaymentMethod.UNSPECIFIED }
-    if (lastFourDigits == null && paymentMethod == null) {
+      paymentInfo.paymentMethod?.takeIf {
+        it != PaymentMethod.UNSPECIFIED && it != PaymentMethod.UNKNOWN
+      }
+    val hasPaymentFlowInfo =
+      lastFourDigits != null || (paymentMethod != null && paymentMethod != PaymentMethod.CASH)
+    if (!hasPaymentFlowInfo) {
       return FinalizeOrderResponse()
     }
     return FinalizeOrderResponse(
@@ -620,14 +890,17 @@ class FoodOrderingModule(
     )
   }
 
-  private fun handleOrderResponse(response: OrderResponse) {
+  internal fun handleOrderResponse(response: OrderResponse) {
     when (response) {
       is OrderResponse.SessionStarted -> {
-        emitOnSessionStarted(
-          Arguments.createMap().apply { putString("sessionId", response.sessionId) }
+        if (response.sessionId.isNotBlank()) {
+          activeSessionId = response.sessionId
+        }
+        dispatchOnSessionStarted(
+          createMap().apply { putString("sessionId", response.sessionId) }
         )
-        emitOnSessionLifecycle(
-          Arguments.createMap().apply {
+        dispatchOnSessionLifecycle(
+          createMap().apply {
             putString("sessionId", response.sessionId)
             putString("state", "STARTED")
           }
@@ -635,84 +908,86 @@ class FoodOrderingModule(
       }
       is OrderResponse.OrderUpdate -> {
         val payload =
-          Arguments.createMap().apply {
+          createMap().apply {
             putString("sessionId", response.sessionId)
             putMap("updatedOrderState", response.updatedOrderState.toWritableMap())
             response.order?.let { putMap("order", it.toWritableMap()) }
           }
-        emitOnOrderUpdate(payload)
+        dispatchOnOrderUpdate(payload)
       }
       is OrderResponse.SessionEnd -> {
         val payload =
-          Arguments.createMap().apply {
+          createMap().apply {
             putString("sessionId", response.sessionId)
             putMap("endSession", response.endSession.toWritableMap())
+            response.endSession.storeSchedule?.let { putMap("storeSchedule", it.toWritableMap()) }
           }
-        emitOnSessionEnded(payload)
+        dispatchOnSessionEnded(payload)
+        clearActiveSessionState()
       }
       is OrderResponse.TurnCompleted -> {
-        val payload = Arguments.createMap().apply { putString("sessionId", response.sessionId) }
-        emitOnTurnCompleted(payload)
+        val payload = createMap().apply { putString("sessionId", response.sessionId) }
+        dispatchOnTurnCompleted(payload)
       }
       is OrderResponse.SpeechRecognitionResult -> {
         val payload =
-          Arguments.createMap().apply {
+          createMap().apply {
             putString("sessionId", response.sessionId)
             putMap("speechRecognition", response.speechRecognition.toWritableMap())
           }
-        emitOnSpeechRecognition(payload)
+        dispatchOnSpeechRecognition(payload)
       }
       is OrderResponse.Text -> {
         val payload =
-          Arguments.createMap().apply {
+          createMap().apply {
             putString("sessionId", response.sessionId)
             putString("text", response.agentText)
           }
-        emitOnAgentText(payload)
+        dispatchOnAgentText(payload)
       }
       is OrderResponse.SuggestedOptions -> {
         val payload =
-          Arguments.createMap().apply {
+          createMap().apply {
             putString("sessionId", response.sessionId)
             putMap("suggestedOptions", response.suggestedOptions.toWritableMap())
           }
-        emitOnSuggestedOptions(payload)
+        dispatchOnSuggestedOptions(payload)
       }
       is OrderResponse.RecommendedOrders -> {
         val payload =
-          Arguments.createMap().apply {
+          createMap().apply {
             putString("sessionId", response.sessionId)
             putMap("recommendedOrders", response.recommendedOrders.toWritableMap())
           }
-        emitOnRecommendedOrders(payload)
+        dispatchOnRecommendedOrders(payload)
       }
       is OrderResponse.AgentEvent -> {
         val payload =
-          Arguments.createMap().apply {
+          createMap().apply {
             putString("sessionId", response.sessionId)
             putMap("agentEvent", response.agentEvent.toWritableMap())
           }
-        emitOnAgentEvent(payload)
+        dispatchOnAgentEvent(payload)
       }
       is OrderResponse.InterruptionSignal -> {
-        val payload = Arguments.createMap().apply { putString("sessionId", response.sessionId) }
-        emitOnInterruptionSignal(payload)
+        val payload = createMap().apply { putString("sessionId", response.sessionId) }
+        dispatchOnInterruptionSignal(payload)
       }
       is OrderResponse.SessionPaused -> {
         val payload =
-          Arguments.createMap().apply {
+          createMap().apply {
             putString("sessionId", response.sessionId)
             putString("state", "PAUSED")
           }
-        emitOnSessionLifecycle(payload)
+        dispatchOnSessionLifecycle(payload)
       }
       is OrderResponse.SessionResumed -> {
         val payload =
-          Arguments.createMap().apply {
+          createMap().apply {
             putString("sessionId", response.sessionId)
             putString("state", "RESUMED")
           }
-        emitOnSessionLifecycle(payload)
+        dispatchOnSessionLifecycle(payload)
       }
       // Server response with no recognized payload; nothing to forward to JS.
       is OrderResponse.Unset -> Unit
@@ -734,6 +1009,9 @@ class FoodOrderingModule(
           code = errorCode,
           message = response.message,
         )
+        if (response.isTerminalSessionError()) {
+          clearActiveSessionState()
+        }
       }
     }
   }
@@ -758,12 +1036,12 @@ class FoodOrderingModule(
 
   private fun emitErrorEvent(sessionId: String?, code: String, message: String) {
     val payload =
-      Arguments.createMap().apply {
+      createMap().apply {
         sessionId?.let { putString("sessionId", it) }
         putString("code", code)
         putString("message", message)
       }
-    emitOnError(payload)
+    dispatchOnError(payload)
   }
 
   companion object {
@@ -773,6 +1051,24 @@ class FoodOrderingModule(
     private const val UNIMPLEMENTED_DELEGATE_ERROR = "UNIMPLEMENTED"
   }
 }
+
+// ============================================================================
+// JNI-Safe Bridge Map / Array Factories
+// ============================================================================
+
+internal fun createMap(): WritableMap =
+  try {
+    Arguments.createMap()
+  } catch (_: Throwable) {
+    JavaOnlyMap()
+  }
+
+internal fun createArray(): WritableArray =
+  try {
+    Arguments.createArray()
+  } catch (_: Throwable) {
+    JavaOnlyArray()
+  }
 
 // ============================================================================
 // ReadableMap -> Native Model Converters
@@ -791,6 +1087,17 @@ private fun ReadableMap.getOptionalInt(key: String): Int? =
     when (getType(key)) {
       ReadableType.Number -> getInt(key)
       ReadableType.String -> getString(key)?.toIntOrNull()
+      else -> null
+    }
+  }
+
+private fun ReadableMap.getOptionalLong(key: String): Long? =
+  if (!hasKey(key) || isNull(key)) {
+    null
+  } else {
+    when (getType(key)) {
+      ReadableType.Number -> getDouble(key).toLong()
+      ReadableType.String -> getString(key)?.toLongOrNull()
       else -> null
     }
   }
@@ -822,14 +1129,32 @@ private fun ReadableArray.toStringList(): List<String> {
   return list
 }
 
+private fun ReadableMap.toTimestamp(): Timestamp? {
+  val seconds = getOptionalLong("seconds") ?: return null
+  val nanos = getOptionalInt("nanos") ?: 0
+  return Timestamp(seconds = seconds, nanos = nanos)
+}
+
+private fun ReadableMap.toDuration(): Duration? {
+  val seconds = getOptionalLong("seconds") ?: return null
+  val nanos = getOptionalInt("nanos") ?: 0
+  return Duration(seconds = seconds, nanos = nanos)
+}
+
 private fun ReadableMap.toFinalizeOrderResponse(): FinalizeOrderResponse =
   FinalizeOrderResponse(
     paymentFlowEnabled = getOptionalBoolean("paymentFlowEnabled") ?: false,
     paymentInfo = getOptionalMap("paymentInfo")?.toPaymentInfo(),
+    totalAmountDue = getOptionalMap("totalAmountDue")?.toMoney(),
+    orderPriceInfo = getOptionalMap("orderPriceInfo")?.toOrderPriceInfo(),
   )
 
 private fun ReadableMap.toSubmitOrderResponse(): SubmitOrderResponse =
-  SubmitOrderResponse(success = getOptionalBoolean("success") ?: false)
+  SubmitOrderResponse(
+    success = getOptionalBoolean("success") ?: false,
+    estimatedReadyDuration = getOptionalMap("estimatedReadyDuration")?.toDuration(),
+    externalOrderId = getOptionalString("externalOrderId"),
+  )
 
 private fun ReadableMap.toOrderPricesResponse(): OrderPricesResponse =
   OrderPricesResponse(
@@ -839,6 +1164,69 @@ private fun ReadableMap.toOrderPricesResponse(): OrderPricesResponse =
 
 private fun ReadableMap.toOrderStatusResponse(): OrderStatusResponse =
   OrderStatusResponse(success = getOptionalBoolean("success") ?: false)
+
+private fun parseLoyaltyActionCategory(raw: String?): LoyaltyActionCategory? {
+  val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+  return when (trimmed) {
+    "LOYALTY_ACTION_CATEGORY_UNSPECIFIED",
+    "UNSPECIFIED" -> LoyaltyActionCategory.UNSPECIFIED
+    "LOYALTY_ACTION_CATEGORY_ADD_CODE",
+    "ADD_CODE" -> LoyaltyActionCategory.ADD_CODE
+    "LOYALTY_ACTION_CATEGORY_IDENTIFY_CUSTOMER",
+    "IDENTIFY_CUSTOMER" -> LoyaltyActionCategory.IDENTIFY_CUSTOMER
+    "LOYALTY_ACTION_CATEGORY_ADD_REWARD",
+    "ADD_REWARD" -> LoyaltyActionCategory.ADD_REWARD
+    "LOYALTY_ACTION_CATEGORY_REDEEM_POINTS",
+    "REDEEM_POINTS" -> LoyaltyActionCategory.REDEEM_POINTS
+    "LOYALTY_ACTION_CATEGORY_REMOVE_LOYALTY",
+    "REMOVE_LOYALTY" -> LoyaltyActionCategory.REMOVE_LOYALTY
+    "UNKNOWN" -> LoyaltyActionCategory.UNKNOWN
+    else -> LoyaltyActionCategory.UNKNOWN
+  }
+}
+
+private fun parseRejectionReason(raw: String?): ClientExecutionStatus.RejectionReason? {
+  val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+  return when (trimmed) {
+    "REJECTION_REASON_UNSPECIFIED",
+    "UNSPECIFIED" -> ClientExecutionStatus.RejectionReason.UNSPECIFIED
+    "REJECTION_REASON_INVALID_ID",
+    "INVALID_ID" -> ClientExecutionStatus.RejectionReason.INVALID_ID
+    "REJECTION_REASON_COOLDOWN_PERIOD",
+    "COOLDOWN_PERIOD" -> ClientExecutionStatus.RejectionReason.COOLDOWN_PERIOD
+    "REJECTION_REASON_INSUFFICIENT_FUNDS",
+    "INSUFFICIENT_FUNDS" -> ClientExecutionStatus.RejectionReason.INSUFFICIENT_FUNDS
+    "REJECTION_REASON_INSUFFICIENT_POINTS",
+    "INSUFFICIENT_POINTS" -> ClientExecutionStatus.RejectionReason.INSUFFICIENT_POINTS
+    "UNKNOWN" -> ClientExecutionStatus.RejectionReason.UNKNOWN
+    else -> ClientExecutionStatus.RejectionReason.UNKNOWN
+  }
+}
+
+private fun ReadableMap.toClientExecutionStatus(): ClientExecutionStatus =
+  ClientExecutionStatus(
+    httpStatusCode = getOptionalInt("httpStatusCode"),
+    rawProviderMessage = getOptionalString("rawProviderMessage"),
+    rejectionReason = parseRejectionReason(getOptionalString("rejectionReason")),
+  )
+
+private fun ReadableMap.toLoyaltyResponse(): LoyaltyResponse =
+  LoyaltyResponse(
+    category = parseLoyaltyActionCategory(getOptionalString("category")),
+    loyaltyMetadata = getOptionalMap("loyaltyMetadata")?.toLoyaltyMetadata(),
+    customIntegrationAttributes =
+      getOptionalMap("customIntegrationAttributes")?.toHashMap() ?: emptyMap(),
+    clientExecutionStatus =
+      getOptionalMap("clientExecutionStatus")?.toClientExecutionStatus(),
+  )
+
+private fun ReadableMap.toUserLocation(): UserLocation? {
+  val coordsMap = getOptionalMap("coordinates") ?: return null
+  return UserLocation(
+    coordinates = coordsMap.toLatLng(),
+    captureTime = getOptionalMap("captureTime")?.toTimestamp(),
+  )
+}
 
 private fun ReadableMap.toUserInfo(): UserInfo =
   UserInfo(
@@ -854,6 +1242,7 @@ private fun ReadableMap.toUserInfo(): UserInfo =
       } ?: emptyList(),
     loyaltyInfo = getOptionalMap("loyaltyInfo")?.toLoyaltyInfo(),
     savedDeliveryAddress = getOptionalMap("savedDeliveryAddress")?.toDeliveryAddress(),
+    location = getOptionalMap("location")?.toUserLocation(),
   )
 
 private fun ReadableMap.toFeatureGates(): FeatureGates =
@@ -865,6 +1254,8 @@ private fun ReadableMap.toFeatureGates(): FeatureGates =
     revampedPaymentFlowEnabled = getOptionalBoolean("revampedPaymentFlowEnabled"),
     enableOrderStatusRetrieval = getOptionalBoolean("enableOrderStatusRetrieval"),
     updatedOrderStateEnabled = getOptionalBoolean("updatedOrderStateEnabled"),
+    storeSelectionEnabled = getOptionalBoolean("storeSelectionEnabled"),
+    offersAndLoyaltyEnabled = getOptionalBoolean("offersAndLoyaltyEnabled"),
   )
 
 private fun ReadableMap.toMoney(): Money =
@@ -874,7 +1265,21 @@ private fun ReadableMap.toMoney(): Money =
     nanos = getOptionalInt("nanos") ?: 0,
   )
 
-private fun ReadableMap.toImage(): Image = Image(sourceUri = getOptionalString("sourceUri") ?: "")
+private fun ReadableMap.toImageSource(): ImageSource =
+  ImageSource(
+    uri = getOptionalString("uri") ?: "",
+    width = getOptionalInt("width") ?: 0,
+    height = getOptionalInt("height") ?: 0,
+  )
+
+private fun ReadableMap.toImage(): Image =
+  Image(
+    sourceUri = getOptionalString("sourceUri") ?: "",
+    sources =
+      getOptionalArray("sources")?.let { arr ->
+        (0 until arr.size()).mapNotNull { arr.getMap(it)?.toImageSource() }
+      } ?: emptyList(),
+  )
 
 private fun ReadableMap.toLatLng(): LatLng =
   LatLng(latitude = getOptionalDouble("latitude"), longitude = getOptionalDouble("longitude"))
@@ -894,10 +1299,80 @@ private fun ReadableMap.toPostalAddress(): PostalAddress =
     organization = getOptionalString("organization"),
   )
 
+private fun parseDeliveryAddressValidationStatus(
+  raw: String?
+): DeliveryAddressValidationStatus? {
+  val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+  return when (trimmed) {
+    "VALIDATION_STATUS_UNSPECIFIED",
+    "UNSPECIFIED" -> DeliveryAddressValidationStatus.UNSPECIFIED
+    "VALIDATION_STATUS_VALID",
+    "VALID" -> DeliveryAddressValidationStatus.VALID
+    "VALIDATION_STATUS_INVALID",
+    "INVALID" -> DeliveryAddressValidationStatus.INVALID
+    "VALIDATION_STATUS_OUT_OF_RANGE",
+    "OUT_OF_RANGE" -> DeliveryAddressValidationStatus.OUT_OF_RANGE
+    "VALIDATION_STATUS_INCOMPLETE_ADDRESS",
+    "INCOMPLETE_ADDRESS" -> DeliveryAddressValidationStatus.INCOMPLETE_ADDRESS
+    "UNKNOWN" -> DeliveryAddressValidationStatus.UNKNOWN
+    else -> DeliveryAddressValidationStatus.UNKNOWN
+  }
+}
+
+private fun parseFulfillmentMethod(raw: String?): FulfillmentMethod? {
+  val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+  return when (trimmed) {
+    "FULFILLMENT_METHOD_UNSPECIFIED",
+    "UNSPECIFIED" -> FulfillmentMethod.UNSPECIFIED
+    "FULFILLMENT_METHOD_DINE_IN",
+    "DINE_IN" -> FulfillmentMethod.DINE_IN
+    "FULFILLMENT_METHOD_PICKUP",
+    "PICKUP" -> FulfillmentMethod.PICKUP
+    "FULFILLMENT_METHOD_DRIVE_THRU",
+    "DRIVE_THRU" -> FulfillmentMethod.DRIVE_THRU
+    "FULFILLMENT_METHOD_DELIVERY",
+    "DELIVERY" -> FulfillmentMethod.DELIVERY
+    "FULFILLMENT_METHOD_CURBSIDE",
+    "CURBSIDE" -> FulfillmentMethod.CURBSIDE
+    "UNKNOWN" -> FulfillmentMethod.UNKNOWN
+    else -> FulfillmentMethod.UNKNOWN
+  }
+}
+
+private fun parseFulfillmentState(raw: String?): FulfillmentState? {
+  val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+  return when (trimmed) {
+    "FULFILLMENT_STATE_UNSPECIFIED",
+    "UNSPECIFIED" -> FulfillmentState.UNSPECIFIED
+    "FULFILLMENT_STATE_PARTIALLY_APPLIED",
+    "PARTIALLY_APPLIED" -> FulfillmentState.PARTIALLY_APPLIED
+    "FULFILLMENT_STATE_FULLY_APPLIED",
+    "FULLY_APPLIED" -> FulfillmentState.FULLY_APPLIED
+    "UNKNOWN" -> FulfillmentState.UNKNOWN
+    else -> FulfillmentState.UNKNOWN
+  }
+}
+
+private fun parseOfferEngineState(raw: String?): OfferEngineState? {
+  val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+  return when (trimmed) {
+    "OFFER_ENGINE_STATE_UNSPECIFIED",
+    "UNSPECIFIED" -> OfferEngineState.UNSPECIFIED
+    "OFFER_ENGINE_STATE_NOT_TRIGGERED",
+    "NOT_TRIGGERED" -> OfferEngineState.NOT_TRIGGERED
+    "OFFER_ENGINE_STATE_NO_OFFERS_FOUND",
+    "NO_OFFERS_FOUND" -> OfferEngineState.NO_OFFERS_FOUND
+    "OFFER_ENGINE_STATE_OFFERS_FOUND",
+    "OFFERS_FOUND" -> OfferEngineState.OFFERS_FOUND
+    "UNKNOWN" -> OfferEngineState.UNKNOWN
+    else -> OfferEngineState.UNKNOWN
+  }
+}
+
 private fun ReadableMap.toDeliveryAddress(): DeliveryAddress =
   DeliveryAddress(
     address = getOptionalMap("address")?.toPostalAddress(),
-    validationStatus = getOptionalString("validationStatus"),
+    status = parseDeliveryAddressValidationStatus(getOptionalString("validationStatus")),
     coordinates = getOptionalMap("coordinates")?.toLatLng(),
   )
 
@@ -905,7 +1380,7 @@ private fun ReadableMap.toPaymentInfo(): PaymentInfo =
   PaymentInfo(
     creditCardLastFourDigits = getOptionalString("creditCardLastFourDigits"),
     paymentMethod =
-      getOptionalString("paymentMethod")?.let { raw ->
+      getOptionalString("paymentMethod")?.trim()?.takeIf { it.isNotEmpty() }?.let { raw ->
         when (raw) {
           "PAYMENT_METHOD_CREDIT_CARD",
           "CREDIT_CARD" -> PaymentMethod.CREDIT_CARD
@@ -913,7 +1388,8 @@ private fun ReadableMap.toPaymentInfo(): PaymentInfo =
           "CASH" -> PaymentMethod.CASH
           "PAYMENT_METHOD_UNSPECIFIED",
           "UNSPECIFIED" -> PaymentMethod.UNSPECIFIED
-          else -> null
+          "UNKNOWN" -> PaymentMethod.UNKNOWN
+          else -> PaymentMethod.UNKNOWN
         }
       },
   )
@@ -925,10 +1401,91 @@ private fun ReadableMap.toTippingInfo(): TippingInfo =
   )
 
 private fun ReadableMap.toLoyaltyAmount(): LoyaltyAmount =
-  LoyaltyAmount(units = getOptionalDouble("units")?.toLong() ?: 0L)
+  LoyaltyAmount(units = getOptionalLong("units") ?: 0L)
 
 private fun ReadableMap.toLoyaltyInfo(): LoyaltyInfo =
   LoyaltyInfo(loyaltyAmount = getOptionalMap("loyaltyAmount")?.toLoyaltyAmount())
+
+private fun ReadableMap.toCustomerInformation(): CustomerInformation =
+  CustomerInformation(
+    name = getOptionalString("name"),
+    loyaltyAmount = getOptionalMap("loyaltyAmount")?.toLoyaltyAmount(),
+    tier = getOptionalString("tier"),
+  )
+
+private fun ReadableMap.toAccrualForecast(): AccrualForecast =
+  AccrualForecast(
+    potentialAccrual = getOptionalMap("potentialAccrual")?.toLoyaltyAmount(),
+    upsellNudge = getOptionalString("upsellNudge"),
+  )
+
+private fun ReadableMap.toLoyaltyConditionDetail(): LoyaltyConditionDetail =
+  LoyaltyConditionDetail(
+    description = getOptionalString("description"),
+    preTaxMinimumSpend = getOptionalMap("preTaxMinimumSpend")?.toMoney(),
+    postTaxMinimumSpend = getOptionalMap("postTaxMinimumSpend")?.toMoney(),
+  )
+
+private fun ReadableMap.toLoyaltySlotDetail(): LoyaltySlotDetail =
+  LoyaltySlotDetail(
+    eligibleProductCodes = getOptionalArray("eligibleProductCodes")?.toStringList() ?: emptyList(),
+    quantityRequired = getOptionalInt("quantityRequired"),
+    conditionalFill = getOptionalBoolean("conditionalFill"),
+  )
+
+private fun ReadableMap.toLoyaltyReward(): LoyaltyReward =
+  LoyaltyReward(
+    rewardId = getOptionalString("rewardId"),
+    displayName = getOptionalString("displayName"),
+    conditions =
+      getOptionalArray("conditions")?.let { arr ->
+        (0 until arr.size()).mapNotNull { arr.getMap(it)?.toLoyaltyConditionDetail() }
+      } ?: emptyList(),
+    slotDetails =
+      getOptionalArray("slotDetails")?.let { arr ->
+        (0 until arr.size()).mapNotNull { arr.getMap(it)?.toLoyaltySlotDetail() }
+      } ?: emptyList(),
+    redemptionCost = getOptionalMap("redemptionCost")?.toLoyaltyAmount(),
+    description = getOptionalString("description"),
+    image = getOptionalMap("image")?.toImage(),
+    expireTime = getOptionalMap("expireTime")?.toTimestamp(),
+    customIntegrationAttributes =
+      getOptionalMap("customIntegrationAttributes")?.toHashMap() ?: emptyMap(),
+  )
+
+private fun ReadableMap.toLoyaltyMetadata(): LoyaltyMetadata =
+  LoyaltyMetadata(
+    customer = getOptionalMap("customer")?.toCustomerInformation(),
+    accrual = getOptionalMap("accrual")?.toAccrualForecast(),
+    availableRewards =
+      getOptionalArray("availableRewards")?.let { arr ->
+        (0 until arr.size()).mapNotNull { arr.getMap(it)?.toLoyaltyReward() }
+      } ?: emptyList(),
+    appliedCodes = getOptionalArray("appliedCodes")?.toStringList() ?: emptyList(),
+    appliedRewardIds = getOptionalArray("appliedRewardIds")?.toStringList() ?: emptyList(),
+  )
+
+private fun ReadableMap.toFulfilledItem(): FulfilledItem =
+  FulfilledItem(
+    lineItemUid = getOptionalString("lineItemUid"),
+    quantity = getOptionalInt("quantity"),
+  )
+
+private fun ReadableMap.toAppliedOffer(): AppliedOffer =
+  AppliedOffer(
+    offerId = getOptionalString("offerId"),
+    fulfillmentState = parseFulfillmentState(getOptionalString("state")),
+    fulfilledItems =
+      getOptionalArray("fulfilledItems")?.let { arr ->
+        (0 until arr.size()).mapNotNull { arr.getMap(it)?.toFulfilledItem() }
+      } ?: emptyList(),
+  )
+
+private fun ReadableMap.toOfferEngineMetadata(): OfferEngineMetadata =
+  OfferEngineMetadata(
+    engineState = parseOfferEngineState(getOptionalString("state")),
+    discountedOrderPriceInfo = getOptionalMap("discountedOrderPriceInfo")?.toOrderPriceInfo(),
+  )
 
 private fun ReadableMap.toOrderModifier(): OrderModifier =
   OrderModifier(
@@ -1008,6 +1565,20 @@ private fun ReadableMap.toOrderPriceInfo(): OrderPriceInfo =
     discount = getOptionalMap("discount")?.toMoney(),
     saving = getOptionalMap("saving")?.toMoney(),
     fees = getOptionalMap("fees")?.toMoney(),
+    tip = getOptionalMap("tip")?.toMoney(),
+  )
+
+private fun ReadableMap.toOrderMetadata(): OrderMetadata =
+  OrderMetadata(
+    collectedCustomerName = getOptionalString("collectedCustomerName"),
+    callerPhoneNumber = getOptionalString("callerPhoneNumber"),
+    loyaltyMetadata = getOptionalMap("loyaltyMetadata")?.toLoyaltyMetadata(),
+    appliedOffers =
+      getOptionalArray("appliedOffers")?.let { arr ->
+        (0 until arr.size()).mapNotNull { arr.getMap(it)?.toAppliedOffer() }
+      } ?: emptyList(),
+    deliveryAddress = getOptionalMap("deliveryAddress")?.toDeliveryAddress(),
+    offerEngineMetadata = getOptionalMap("offerEngineMetadata")?.toOfferEngineMetadata(),
   )
 
 private fun ReadableMap.toOrder(): Order =
@@ -1016,20 +1587,13 @@ private fun ReadableMap.toOrder(): Order =
       getOptionalArray("items")?.let { arr ->
         (0 until arr.size()).mapNotNull { arr.getMap(it)?.toOrderItem() }
       } ?: emptyList(),
-    metadata =
-      getOptionalMap("metadata")?.let { meta ->
-        OrderMetadata(
-          collectedCustomerName = meta.getOptionalString("collectedCustomerName"),
-          callerPhoneNumber = meta.getOptionalString("callerPhoneNumber"),
-          deliveryAddress = meta.getOptionalMap("deliveryAddress")?.toDeliveryAddress(),
-        )
-      },
+    metadata = getOptionalMap("metadata")?.toOrderMetadata(),
     fulfillment =
       getOptionalMap("fulfillment")?.let { f ->
         OrderFulfillment(
-          fulfillmentMethod = f.getOptionalString("fulfillmentMethod"),
-          createTime = f.getOptionalString("createTime"),
-          targetFulfillmentTime = f.getOptionalString("targetFulfillmentTime"),
+          method = parseFulfillmentMethod(f.getOptionalString("fulfillmentMethod")),
+          createTimestamp = f.getOptionalMap("createTime")?.toTimestamp(),
+          targetFulfillmentTimestamp = f.getOptionalMap("targetFulfillmentTime")?.toTimestamp(),
         )
       },
     priceInfo = getOptionalMap("priceInfo")?.toOrderPriceInfo(),
@@ -1052,44 +1616,145 @@ private fun ReadableMap.toOrder(): Order =
 // Native Model -> WritableMap Converters
 // ============================================================================
 
+private fun Timestamp.toWritableMap(): WritableMap =
+  createMap().apply {
+    putDouble("seconds", seconds.toDouble())
+    putInt("nanos", nanos)
+  }
+
+private fun LoyaltyAmount.toWritableMap(): WritableMap =
+  createMap().apply { putDouble("units", units.toDouble()) }
+
+private fun LoyaltyActionCategory.toWireString(): String =
+  when (this) {
+    LoyaltyActionCategory.UNSPECIFIED -> "LOYALTY_ACTION_CATEGORY_UNSPECIFIED"
+    LoyaltyActionCategory.ADD_CODE -> "LOYALTY_ACTION_CATEGORY_ADD_CODE"
+    LoyaltyActionCategory.IDENTIFY_CUSTOMER -> "LOYALTY_ACTION_CATEGORY_IDENTIFY_CUSTOMER"
+    LoyaltyActionCategory.ADD_REWARD -> "LOYALTY_ACTION_CATEGORY_ADD_REWARD"
+    LoyaltyActionCategory.REDEEM_POINTS -> "LOYALTY_ACTION_CATEGORY_REDEEM_POINTS"
+    LoyaltyActionCategory.REMOVE_LOYALTY -> "LOYALTY_ACTION_CATEGORY_REMOVE_LOYALTY"
+    LoyaltyActionCategory.UNKNOWN -> "UNKNOWN"
+  }
+
+private fun LoyaltyRequest.toWritableMap(): WritableMap =
+  createMap().apply {
+    putString("category", category.toWireString())
+    code?.let { putString("code", it) }
+    phoneNumber?.let { putString("phoneNumber", it) }
+    email?.let { putString("email", it) }
+    loyaltyAccountId?.let { putString("loyaltyAccountId", it) }
+    if (rewardIds.isNotEmpty()) {
+      putArray("rewardIds", rewardIds.toWritableArray())
+    }
+    if (selectedProductCodes.isNotEmpty()) {
+      putArray("selectedProductCodes", selectedProductCodes.toWritableArray())
+    }
+    loyaltyAmount?.let { putMap("loyaltyAmount", it.toWritableMap()) }
+  }
+
 private fun SubmitOrderRequest.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     paymentInfo?.let { putMap("paymentInfo", it.toWritableMap()) }
     loyaltyInfo?.let { putMap("loyaltyInfo", it.toWritableMap()) }
     tip?.let { putMap("tip", it.toWritableMap()) }
   }
 
 private fun OrderPricesRequest.toWritableMap(): WritableMap =
-  Arguments.createMap().apply { order?.let { putMap("order", it.toWritableMap()) } }
+  createMap().apply { order?.let { putMap("order", it.toWritableMap()) } }
 
 private fun SubmitOrderPaymentInfo.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     creditCardLastFourDigits?.let { putString("creditCardLastFourDigits", it) }
     creditCardCvv?.let { putString("creditCardCvv", it) }
     paymentMethod?.let { putString("paymentMethod", it.value) }
   }
 
 private fun PaymentInfo.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     creditCardLastFourDigits?.let { putString("creditCardLastFourDigits", it) }
     paymentMethod?.let { putString("paymentMethod", it.value) }
   }
 
 private fun LoyaltyInfo.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
-    loyaltyAmount?.let { la ->
-      putMap(
-        "loyaltyAmount",
-        Arguments.createMap().apply { putDouble("units", la.units.toDouble()) },
-      )
+  createMap().apply { loyaltyAmount?.let { putMap("loyaltyAmount", it.toWritableMap()) } }
+
+private fun CustomerInformation.toWritableMap(): WritableMap =
+  createMap().apply {
+    name?.let { putString("name", it) }
+    loyaltyAmount?.let { putMap("loyaltyAmount", it.toWritableMap()) }
+    tier?.let { putString("tier", it) }
+  }
+
+private fun AccrualForecast.toWritableMap(): WritableMap =
+  createMap().apply {
+    potentialAccrual?.let { putMap("potentialAccrual", it.toWritableMap()) }
+    upsellNudge?.let { putString("upsellNudge", it) }
+  }
+
+private fun LoyaltyConditionDetail.toWritableMap(): WritableMap =
+  createMap().apply {
+    description?.let { putString("description", it) }
+    preTaxMinimumSpend?.let { putMap("preTaxMinimumSpend", it.toWritableMap()) }
+    postTaxMinimumSpend?.let { putMap("postTaxMinimumSpend", it.toWritableMap()) }
+  }
+
+private fun LoyaltySlotDetail.toWritableMap(): WritableMap =
+  createMap().apply {
+    putArray("eligibleProductCodes", eligibleProductCodes.toWritableArray())
+    quantityRequired?.let { putInt("quantityRequired", it) }
+    conditionalFill?.let { putBoolean("conditionalFill", it) }
+  }
+
+private fun LoyaltyReward.toWritableMap(): WritableMap =
+  createMap().apply {
+    rewardId?.let { putString("rewardId", it) }
+    displayName?.let { putString("displayName", it) }
+    val condArr = createArray()
+    conditions.forEach { condArr.pushMap(it.toWritableMap()) }
+    putArray("conditions", condArr)
+    val slotsArr = createArray()
+    slotDetails.forEach { slotsArr.pushMap(it.toWritableMap()) }
+    putArray("slotDetails", slotsArr)
+    redemptionCost?.let { putMap("redemptionCost", it.toWritableMap()) }
+    description?.let { putString("description", it) }
+    image?.let { putMap("image", it.toWritableMap()) }
+    expireTime?.let { putMap("expireTime", it.toWritableMap()) }
+    if (customIntegrationAttributes.isNotEmpty()) {
+      putMap("customIntegrationAttributes", customIntegrationAttributes.toArbitraryWritableMap())
     }
   }
 
+private fun LoyaltyMetadata.toWritableMap(): WritableMap =
+  createMap().apply {
+    customer?.let { putMap("customer", it.toWritableMap()) }
+    accrual?.let { putMap("accrual", it.toWritableMap()) }
+    val rewardsArr = createArray()
+    availableRewards.forEach { rewardsArr.pushMap(it.toWritableMap()) }
+    putArray("availableRewards", rewardsArr)
+    putArray("appliedCodes", appliedCodes.toWritableArray())
+    putArray("appliedRewardIds", appliedRewardIds.toWritableArray())
+  }
+
+private fun FulfilledItem.toWritableMap(): WritableMap =
+  createMap().apply {
+    lineItemUid?.let { putString("lineItemUid", it) }
+    quantity?.let { putInt("quantity", it) }
+  }
+
+private fun AppliedOffer.toWritableMap(): WritableMap =
+  createMap().apply {
+    offerId?.let { putString("offerId", it) }
+    fulfillmentState?.let { putString("state", it.value) }
+    val itemsArr = createArray()
+    fulfilledItems.forEach { itemsArr.pushMap(it.toWritableMap()) }
+    putArray("fulfilledItems", itemsArr)
+  }
+
 private fun UpdatedOrderState.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     order?.let {
       putMap("order", it.toWritableMap())
-      val itemsArr = Arguments.createArray()
+      val itemsArr = createArray()
       it.items.forEach { item -> itemsArr.pushMap(item.toWritableMap()) }
       putArray("items", itemsArr)
     }
@@ -1098,49 +1763,117 @@ private fun UpdatedOrderState.toWritableMap(): WritableMap =
     putString("detailedMessage", detailedMessage)
   }
 
+private fun DayOfWeek.toWireString(): String =
+  if (this == DayOfWeek.UNSPECIFIED) "DAY_OF_WEEK_UNSPECIFIED" else name
+
+private fun StoreDate.toWritableMap(): WritableMap =
+  createMap().apply {
+    putInt("year", year)
+    putInt("month", month)
+    putInt("day", day)
+  }
+
+private fun DateRange.toWritableMap(): WritableMap =
+  createMap().apply {
+    startDate?.let { putMap("startDate", it.toWritableMap()) }
+    endDate?.let { putMap("endDate", it.toWritableMap()) }
+  }
+
+private fun TimeOfDay.toWritableMap(): WritableMap =
+  createMap().apply {
+    putInt("hours", hours)
+    putInt("minutes", minutes)
+    putInt("seconds", seconds)
+    putInt("nanos", nanos)
+  }
+
+private fun TimeOfDayRange.toWritableMap(): WritableMap =
+  createMap().apply {
+    startTime?.let { putMap("startTime", it.toWritableMap()) }
+    endTime?.let { putMap("endTime", it.toWritableMap()) }
+  }
+
+private fun StoreSchedule.toWritableMap(): WritableMap =
+  createMap().apply {
+    val daysArr = createArray()
+    days.forEach { daysArr.pushString(it.toWireString()) }
+    putArray("days", daysArr)
+    val dateRangesArr = createArray()
+    dateRanges.forEach { dateRangesArr.pushMap(it.toWritableMap()) }
+    putArray("dateRanges", dateRangesArr)
+    val timeRangesArr = createArray()
+    timeRanges.forEach { timeRangesArr.pushMap(it.toWritableMap()) }
+    putArray("timeRanges", timeRangesArr)
+  }
+
 private fun EndSession.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     putString("type", type?.name ?: "END_TYPE_UNSPECIFIED")
     putString("reason", reason ?: "")
     posResponse?.let { putString("posResponse", it) }
     agentResponse?.let { putString("agentResponse", it) }
+    storeSchedule?.let { putMap("storeSchedule", it.toWritableMap()) }
   }
 
 private fun SpeechRecognition.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     putString("transcript", transcript)
     putString("languageCode", languageCode)
     putBoolean("isFinal", isFinal)
   }
 
 private fun AgentEvent.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
-    restartOrder?.let { ro ->
-      putMap(
-        "restartOrder",
-        Arguments.createMap().apply { putBoolean("confirmationStep", ro.confirmationStep) },
-      )
+  createMap().apply {
+    when (this@toWritableMap) {
+      is AgentEvent.RestartOrder -> {
+        putString("type", "RESTART_ORDER")
+        putBoolean("confirmationStep", confirmationStep)
+      }
+      is AgentEvent.StoreChange -> {
+        putString("type", "STORE_CHANGE")
+        putString("store", store)
+      }
+      AgentEvent.Unknown -> {
+        putString("type", "UNKNOWN")
+      }
     }
   }
 
 private fun Money.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     putString("currencyCode", currencyCode)
     putInt("units", units)
     putInt("nanos", nanos)
   }
 
+private fun ImageSource.toWritableMap(): WritableMap =
+  createMap().apply {
+    putString("uri", uri)
+    putInt("width", width)
+    putInt("height", height)
+  }
+
 private fun Image.toWritableMap(): WritableMap =
-  Arguments.createMap().apply { putString("sourceUri", sourceUri) }
+  createMap().apply {
+    putString("sourceUri", sourceUri)
+    if (sources.isNotEmpty()) {
+      val sourcesArr = createArray()
+      sources.forEach { sourcesArr.pushMap(it.toWritableMap()) }
+      putArray("sources", sourcesArr)
+    }
+  }
+
+private fun NutritionalInfo.toWritableMap(): WritableMap =
+  createMap().apply { putString("calories", calories) }
 
 private fun LatLng.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     latitude?.let { putDouble("latitude", it) }
     longitude?.let { putDouble("longitude", it) }
   }
 
 private fun PostalAddress.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     revision?.let { putInt("revision", it) }
     regionCode?.let { putString("regionCode", it) }
     languageCode?.let { putString("languageCode", it) }
@@ -1155,14 +1888,38 @@ private fun PostalAddress.toWritableMap(): WritableMap =
   }
 
 private fun DeliveryAddress.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     address?.let { putMap("address", it.toWritableMap()) }
-    validationStatus?.let { putString("validationStatus", it) }
+    status?.let { putString("validationStatus", it.value) }
     coordinates?.let { putMap("coordinates", it.toWritableMap()) }
   }
 
+private fun ItemIntegrationAttributes.toWritableMap(): WritableMap =
+  createMap().apply {
+    externalItemId?.let { putString("externalItemId", it) }
+    if (customIntegrationAttributes.isNotEmpty()) {
+      putMap("customIntegrationAttributes", customIntegrationAttributes.toArbitraryWritableMap())
+    }
+  }
+
+private fun ModifierGroupIntegrationAttributes.toWritableMap(): WritableMap =
+  createMap().apply {
+    externalModifierGroupId?.let { putString("externalModifierGroupId", it) }
+    if (customIntegrationAttributes.isNotEmpty()) {
+      putMap("customIntegrationAttributes", customIntegrationAttributes.toArbitraryWritableMap())
+    }
+  }
+
+private fun ModifierIntegrationAttributes.toWritableMap(): WritableMap =
+  createMap().apply {
+    externalModifierId?.let { putString("externalModifierId", it) }
+    if (customIntegrationAttributes.isNotEmpty()) {
+      putMap("customIntegrationAttributes", customIntegrationAttributes.toArbitraryWritableMap())
+    }
+  }
+
 private fun OrderModifier.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     uid?.let { putString("uid", it) }
     putString("modifierId", modifierId)
     putString("displayName", displayName)
@@ -1171,85 +1928,71 @@ private fun OrderModifier.toWritableMap(): WritableMap =
     modifierAction?.let { action ->
       putMap(
         "modifierAction",
-        Arguments.createMap().apply { action.name?.let { putString("name", it) } },
+        createMap().apply { action.name?.let { putString("name", it) } },
       )
     }
     image?.let { putMap("image", it.toWritableMap()) }
-    val nestedGroups = Arguments.createArray()
+    val nestedGroups = createArray()
     modifierGroups.forEach { nestedGroups.pushMap(it.toWritableMap()) }
     putArray("modifierGroups", nestedGroups)
     isDefault?.let { putBoolean("isDefault", it) }
-    integrationAttributes?.let { attrs ->
-      putMap(
-        "integrationAttributes",
-        Arguments.createMap().apply {
-          attrs.externalModifierId?.let { putString("externalModifierId", it) }
-        },
-      )
-    }
+    integrationAttributes?.let { putMap("integrationAttributes", it.toWritableMap()) }
   }
 
 private fun OrderModifierGroup.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     putString("modifierGroupId", modifierGroupId)
     putString("displayName", displayName)
-    val modsArray = Arguments.createArray()
+    val modsArray = createArray()
     modifiers.forEach { modsArray.pushMap(it.toWritableMap()) }
     putArray("modifiers", modsArray)
-    integrationAttributes?.let { attrs ->
-      putMap(
-        "integrationAttributes",
-        Arguments.createMap().apply {
-          attrs.externalModifierGroupId?.let { putString("externalModifierGroupId", it) }
-        },
-      )
-    }
+    integrationAttributes?.let { putMap("integrationAttributes", it.toWritableMap()) }
   }
 
 private fun OrderItem.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     uid?.let { putString("uid", it) }
     putString("itemId", itemId)
     putString("displayName", displayName)
     image?.let { putMap("image", it.toWritableMap()) }
     basePrice?.let { putMap("basePrice", it.toWritableMap()) }
-    val groupsArray = Arguments.createArray()
+    val groupsArray = createArray()
     modifierGroups.forEach { groupsArray.pushMap(it.toWritableMap()) }
     putArray("modifierGroups", groupsArray)
     putInt("quantity", quantity)
-    integrationAttributes?.let { attrs ->
-      putMap(
-        "integrationAttributes",
-        Arguments.createMap().apply {
-          attrs.externalItemId?.let { putString("externalItemId", it) }
-        },
-      )
-    }
+    integrationAttributes?.let { putMap("integrationAttributes", it.toWritableMap()) }
     totalPrice?.let { putMap("totalPrice", it.toWritableMap()) }
     putArray("categoryIds", categoryIds.toWritableArray())
     isPending?.let { putBoolean("isPending", it) }
   }
 
 private fun OrderPriceInfo.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     totalPrice?.let { putMap("totalPrice", it.toWritableMap()) }
     subtotalPrice?.let { putMap("subtotalPrice", it.toWritableMap()) }
     taxPrice?.let { putMap("taxPrice", it.toWritableMap()) }
     discount?.let { putMap("discount", it.toWritableMap()) }
     saving?.let { putMap("saving", it.toWritableMap()) }
     fees?.let { putMap("fees", it.toWritableMap()) }
+    tip?.let { putMap("tip", it.toWritableMap()) }
   }
 
 private fun OrderMetadata.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     collectedCustomerName?.let { putString("collectedCustomerName", it) }
     callerPhoneNumber?.let { putString("callerPhoneNumber", it) }
+    loyaltyMetadata?.let { putMap("loyaltyMetadata", it.toWritableMap()) }
+    if (appliedOffers.isNotEmpty()) {
+      val offersArr = createArray()
+      appliedOffers.forEach { offersArr.pushMap(it.toWritableMap()) }
+      putArray("appliedOffers", offersArr)
+    }
     deliveryAddress?.let { putMap("deliveryAddress", it.toWritableMap()) }
     offerEngineMetadata?.let { oem ->
       putMap(
         "offerEngineMetadata",
-        Arguments.createMap().apply {
-          oem.state?.let { putString("state", it) }
+        createMap().apply {
+          oem.engineState?.let { putString("state", it.value) }
           oem.discountedOrderPriceInfo?.let {
             putMap("discountedOrderPriceInfo", it.toWritableMap())
           }
@@ -1258,55 +2001,68 @@ private fun OrderMetadata.toWritableMap(): WritableMap =
     }
   }
 
+private fun TippingInfo.toWritableMap(): WritableMap =
+  createMap().apply {
+    amount?.let { putMap("amount", it.toWritableMap()) }
+    percentageBps?.let { putInt("percentageBps", it) }
+  }
+
+private fun OrderPayment.toWritableMap(): WritableMap =
+  createMap().apply {
+    tippingInfo?.let { putMap("tippingInfo", it.toWritableMap()) }
+    loyaltyConsumed?.let { putMap("loyaltyConsumed", it.toWritableMap()) }
+    paymentInfo?.let { putMap("paymentInfo", it.toWritableMap()) }
+  }
+
 private fun Order.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
-    val itemsArray = Arguments.createArray()
+  createMap().apply {
+    val itemsArray = createArray()
     items.forEach { itemsArray.pushMap(it.toWritableMap()) }
     putArray("items", itemsArray)
     metadata?.let { putMap("metadata", it.toWritableMap()) }
     fulfillment?.let { f ->
       putMap(
         "fulfillment",
-        Arguments.createMap().apply {
-          f.fulfillmentMethod?.let { putString("fulfillmentMethod", it) }
-          f.createTime?.let { putString("createTime", it) }
-          f.targetFulfillmentTime?.let { putString("targetFulfillmentTime", it) }
+        createMap().apply {
+          f.method?.let { putString("fulfillmentMethod", it.value) }
+          f.createTimestamp?.let { putMap("createTime", it.toWritableMap()) }
+          f.targetFulfillmentTimestamp?.let { putMap("targetFulfillmentTime", it.toWritableMap()) }
         },
       )
     }
     priceInfo?.let { putMap("priceInfo", it.toWritableMap()) }
     externalOrderId?.let { putString("externalOrderId", it) }
-    tippingInfo?.let { tip ->
-      putMap(
-        "tippingInfo",
-        Arguments.createMap().apply {
-          tip.amount?.let { putMap("amount", it.toWritableMap()) }
-          tip.percentageBps?.let { putInt("percentageBps", it) }
-        },
-      )
-    }
+    @Suppress("DEPRECATION")
+    tippingInfo?.let { putMap("tippingInfo", it.toWritableMap()) }
+    @Suppress("DEPRECATION")
     loyaltyInfo?.let { putMap("loyaltyInfo", it.toWritableMap()) }
+    orderPayment?.let { putMap("orderPayment", it.toWritableMap()) }
+    if (customIntegrationAttributes.isNotEmpty()) {
+      putMap("customIntegrationAttributes", customIntegrationAttributes.toArbitraryWritableMap())
+    }
   }
 
 private fun SuggestedModifier.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     putString("modifierId", modifierId)
     putString("modifierGroupId", modifierGroupId)
     putString("modifierGroupDisplayName", modifierGroupDisplayName)
     putString("displayName", displayName)
     image?.let { putMap("image", it.toWritableMap()) }
     priceAdjustment?.let { putMap("priceAdjustment", it.toWritableMap()) }
+    integrationAttributes?.let { putMap("integrationAttributes", it.toWritableMap()) }
     putBoolean("alreadyIncluded", alreadyIncluded)
-    val nestedGroups = Arguments.createArray()
+    val nestedGroups = createArray()
     suggestedModifierGroups.forEach { nestedGroups.pushMap(it.toWritableMap()) }
     putArray("suggestedModifierGroups", nestedGroups)
+    nutritionalInfo?.let { putMap("nutritionalInfo", it.toWritableMap()) }
   }
 
 private fun SuggestedModGroup.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     putString("modifierGroupId", modifierGroupId)
     putString("displayName", displayName)
-    val modsArray = Arguments.createArray()
+    val modsArray = createArray()
     modifiers.forEach { modsArray.pushMap(it.toWritableMap()) }
     putArray("modifiers", modsArray)
     putInt("maxSelectionCount", maxSelectionCount)
@@ -1316,16 +2072,16 @@ private fun SuggestedModGroup.toWritableMap(): WritableMap =
   }
 
 private fun SuggestedStores.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
-    val storesArr = Arguments.createArray()
+  createMap().apply {
+    val storesArr = createArray()
     stores.forEach { store ->
       storesArr.pushMap(
-        Arguments.createMap().apply {
+        createMap().apply {
           putDouble("distance", store.distance)
           store.address?.let { addr ->
             putMap(
               "address",
-              Arguments.createMap().apply {
+              createMap().apply {
                 putString("streetAddress", addr.streetAddress)
                 putString("city", addr.city)
                 putString("state", addr.state)
@@ -1337,79 +2093,13 @@ private fun SuggestedStores.toWritableMap(): WritableMap =
               },
             )
           }
-          val hoursArr = Arguments.createArray()
+          val hoursArr = createArray()
           store.storeHours.forEach { sh ->
             hoursArr.pushMap(
-              Arguments.createMap().apply {
-                sh.fulfillmentMethod?.let { putString("fulfillmentMethod", it) }
-                val schedulesArr = Arguments.createArray()
-                sh.schedules.forEach { sched ->
-                  schedulesArr.pushMap(
-                    Arguments.createMap().apply {
-                      val daysArr = Arguments.createArray()
-                      sched.days.forEach { daysArr.pushString(it.name) }
-                      putArray("days", daysArr)
-                      val dateRangesArr = Arguments.createArray()
-                      sched.dateRanges.forEach { dr ->
-                        dateRangesArr.pushMap(
-                          Arguments.createMap().apply {
-                            dr.startDate?.let { sd ->
-                              putMap(
-                                "startDate",
-                                Arguments.createMap().apply {
-                                  putInt("year", sd.year)
-                                  putInt("month", sd.month)
-                                  putInt("day", sd.day)
-                                },
-                              )
-                            }
-                            dr.endDate?.let { ed ->
-                              putMap(
-                                "endDate",
-                                Arguments.createMap().apply {
-                                  putInt("year", ed.year)
-                                  putInt("month", ed.month)
-                                  putInt("day", ed.day)
-                                },
-                              )
-                            }
-                          }
-                        )
-                      }
-                      putArray("dateRanges", dateRangesArr)
-                      val timeRangesArr = Arguments.createArray()
-                      sched.timeRanges.forEach { tr ->
-                        timeRangesArr.pushMap(
-                          Arguments.createMap().apply {
-                            tr.startTime?.let { st ->
-                              putMap(
-                                "startTime",
-                                Arguments.createMap().apply {
-                                  putInt("hours", st.hours)
-                                  putInt("minutes", st.minutes)
-                                  putInt("seconds", st.seconds)
-                                  putInt("nanos", st.nanos)
-                                },
-                              )
-                            }
-                            tr.endTime?.let { et ->
-                              putMap(
-                                "endTime",
-                                Arguments.createMap().apply {
-                                  putInt("hours", et.hours)
-                                  putInt("minutes", et.minutes)
-                                  putInt("seconds", et.seconds)
-                                  putInt("nanos", et.nanos)
-                                },
-                              )
-                            }
-                          }
-                        )
-                      }
-                      putArray("timeRanges", timeRangesArr)
-                    }
-                  )
-                }
+              createMap().apply {
+                sh.method?.let { putString("fulfillmentMethod", it.value) }
+                val schedulesArr = createArray()
+                sh.schedules.forEach { sched -> schedulesArr.pushMap(sched.toWritableMap()) }
                 putArray("schedules", schedulesArr)
               }
             )
@@ -1421,7 +2111,7 @@ private fun SuggestedStores.toWritableMap(): WritableMap =
           store.timeZone?.let { tz ->
             putMap(
               "timeZone",
-              Arguments.createMap().apply {
+              createMap().apply {
                 putString("id", tz.id)
                 putString("version", tz.version)
               },
@@ -1433,69 +2123,153 @@ private fun SuggestedStores.toWritableMap(): WritableMap =
     putArray("stores", storesArr)
   }
 
+private fun DiscountType.toWireString(): String =
+  if (this == DiscountType.UNSPECIFIED) "DISCOUNT_TYPE_UNSPECIFIED" else name
+
+private fun DiscountScope.toWireString(): String =
+  if (this == DiscountScope.UNSPECIFIED) "SCOPE_UNSPECIFIED" else name
+
+private fun Discount.toWritableMap(): WritableMap =
+  createMap().apply {
+    putString("name", name)
+    putString("displayName", displayName)
+    putString("type", type.toWireString())
+    putString("scope", scope.toWireString())
+    schedule?.let { putMap("schedule", it.toWritableMap()) }
+    fixedAmount?.let { putMap("fixedAmount", it.toWritableMap()) }
+    putDouble("percent", percent.toDouble())
+    maxDiscountValue?.let { putMap("maxDiscountValue", it.toWritableMap()) }
+    putBoolean("autoApply", autoApply)
+    image?.let { putMap("image", it.toWritableMap()) }
+    putString("description", description)
+  }
+
+private fun SuggestedOffer.toWritableMap(): WritableMap =
+  createMap().apply {
+    when (this@toWritableMap) {
+      is SuggestedOffer.LoyaltyReward -> putMap("loyaltyReward", loyaltyReward.toWritableMap())
+      is SuggestedOffer.Discount -> putMap("discount", discount.toWritableMap())
+      SuggestedOffer.Unknown -> Unit
+    }
+  }
+
+private fun SuggestedOffers.toWritableMap(): WritableMap =
+  createMap().apply {
+    val offersArr = createArray()
+    offers.forEach { offersArr.pushMap(it.toWritableMap()) }
+    putArray("offers", offersArr)
+  }
+
 private fun SuggestedOptions.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
+  createMap().apply {
     suggestedItems?.let { si ->
-      val itemsArr = Arguments.createArray()
+      val itemsArr = createArray()
       si.items.forEach { item ->
         itemsArr.pushMap(
-          Arguments.createMap().apply {
+          createMap().apply {
             putString("itemId", item.itemId)
             putString("displayName", item.displayName)
             item.image?.let { putMap("image", it.toWritableMap()) }
             item.basePrice?.let { putMap("basePrice", it.toWritableMap()) }
+            item.integrationAttributes?.let { putMap("integrationAttributes", it.toWritableMap()) }
+            putString("description", item.description)
+            item.nutritionalInfo?.let { putMap("nutritionalInfo", it.toWritableMap()) }
           }
         )
       }
-      putMap("suggestedItems", Arguments.createMap().apply { putArray("items", itemsArr) })
+      putMap("suggestedItems", createMap().apply { putArray("items", itemsArr) })
     }
     suggestedModifiers?.let { sm ->
-      val modsArr = Arguments.createArray()
+      val modsArr = createArray()
       sm.modifiers.forEach { modsArr.pushMap(it.toWritableMap()) }
       putMap(
         "suggestedModifiers",
-        Arguments.createMap().apply {
+        createMap().apply {
           putArray("modifiers", modsArr)
           putString("parentUid", sm.parentUid)
         },
       )
     }
     suggestedModifierGroups?.let { smg ->
-      val groupsArr = Arguments.createArray()
+      val groupsArr = createArray()
       smg.modifierGroups.forEach { groupsArr.pushMap(it.toWritableMap()) }
-      putMap(
-        "suggestedModifierGroups",
-        Arguments.createMap().apply { putArray("modifierGroups", groupsArr) },
-      )
+      putMap("suggestedModifierGroups", createMap().apply { putArray("modifierGroups", groupsArr) })
     }
     suggestedStores?.let { ss -> putMap("suggestedStores", ss.toWritableMap()) }
     suggestedActions?.let { sa ->
-      val actionsArr = Arguments.createArray()
+      val actionsArr = createArray()
       sa.actions.forEach { action ->
         actionsArr.pushMap(
-          Arguments.createMap().apply {
+          createMap().apply {
             putString("displayName", action.displayName)
             action.textInput?.let { ti ->
-              putMap("textInput", Arguments.createMap().apply { putString("text", ti.text) })
+              putMap("textInput", createMap().apply { putString("text", ti.text) })
             }
           }
         )
       }
-      putMap("suggestedActions", Arguments.createMap().apply { putArray("actions", actionsArr) })
+      putMap("suggestedActions", createMap().apply { putArray("actions", actionsArr) })
+    }
+    suggestedOffers?.let { so -> putMap("suggestedOffers", so.toWritableMap()) }
+    if (customIntegrationAttributes.isNotEmpty()) {
+      putMap("customIntegrationAttributes", customIntegrationAttributes.toArbitraryWritableMap())
     }
   }
 
 private fun RecommendedOrders.toWritableMap(): WritableMap =
-  Arguments.createMap().apply {
-    val arr = Arguments.createArray()
+  createMap().apply {
+    val arr = createArray()
     recommendedOrders.forEach { rec ->
-      arr.pushMap(Arguments.createMap().apply { putMap("order", rec.order.toWritableMap()) })
+      arr.pushMap(createMap().apply { rec.order?.let { putMap("order", it.toWritableMap()) } })
     }
     putArray("recommendedOrders", arr)
   }
 
 private fun List<String>.toWritableArray(): WritableArray {
-  val array = Arguments.createArray()
+  val array = createArray()
   forEach { array.pushString(it) }
   return array
+}
+
+private fun Map<*, *>.toArbitraryWritableMap(): WritableMap =
+  createMap().apply {
+    for ((rawKey, value) in this@toArbitraryWritableMap) {
+      val key = rawKey?.toString() ?: continue
+      putArbitraryValue(key, value)
+    }
+  }
+
+private fun Iterable<*>.toArbitraryWritableArray(): WritableArray =
+  createArray().apply {
+    for (element in this@toArbitraryWritableArray) {
+      pushArbitraryValue(element)
+    }
+  }
+
+private fun WritableMap.putArbitraryValue(key: String, value: Any?) {
+  when (value) {
+    null -> putNull(key)
+    is Boolean -> putBoolean(key, value)
+    is Int -> putInt(key, value)
+    is Number -> putDouble(key, value.toDouble())
+    is String -> putString(key, value)
+    is Map<*, *> -> putMap(key, value.toArbitraryWritableMap())
+    is Iterable<*> -> putArray(key, value.toArbitraryWritableArray())
+    is Array<*> -> putArray(key, value.asIterable().toArbitraryWritableArray())
+    else -> putString(key, value.toString())
+  }
+}
+
+private fun WritableArray.pushArbitraryValue(value: Any?) {
+  when (value) {
+    null -> pushNull()
+    is Boolean -> pushBoolean(value)
+    is Int -> pushInt(value)
+    is Number -> pushDouble(value.toDouble())
+    is String -> pushString(value)
+    is Map<*, *> -> pushMap(value.toArbitraryWritableMap())
+    is Iterable<*> -> pushArray(value.toArbitraryWritableArray())
+    is Array<*> -> pushArray(value.asIterable().toArbitraryWritableArray())
+    else -> pushString(value.toString())
+  }
 }

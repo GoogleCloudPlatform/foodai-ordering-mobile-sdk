@@ -13,5 +13,5 @@
 // limitations under the License.
 {
   "extends": "./tsconfig",
-  "exclude": ["example", "lib"]
+  "exclude": ["example", "lib", "src/**/__tests__/**", "**/*.test.ts", "**/*.spec.ts"]
 }

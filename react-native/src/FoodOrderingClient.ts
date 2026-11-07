@@ -18,7 +18,6 @@ import type {
   AgentEventPayload,
   AgentTextEvent,
   AudioLevelEvent,
-  AuthTokenProvider,
   CustomizedInput,
   FinalizeOrderRequest,
   FoodOrderingClientAuthToken,
@@ -28,6 +27,7 @@ import type {
   FoodOrderingEventMap,
   FoodOrderingServiceEvent,
   InterruptionSignalEvent,
+  LoyaltyRequest,
   Order,
   OrderingSessionConfig,
   OrderPricesRequest,
@@ -65,9 +65,49 @@ function toUnsafeObject(value: unknown): CodegenTypes.UnsafeObject {
 }
 
 /**
+ * Recursively normalizes outgoing payloads passed from JS to native so optional
+ * `Timestamp` / `Duration` `nanos` fields default to `0` (required by iOS
+ * synthesized `Timestamp` `Decodable`) while preserving opaque
+ * `customIntegrationAttributes` and `parameters` maps.
+ */
+function prepareOutgoingPayload(value: unknown): unknown {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(prepareOutgoingPayload);
+  }
+  const record = value as Record<string, unknown>;
+  const prepared: Record<string, unknown> = {};
+  for (const [key, propValue] of Object.entries(record)) {
+    if (propValue === undefined) {
+      continue;
+    }
+    if (key === 'customIntegrationAttributes' || key === 'parameters') {
+      prepared[key] = propValue;
+    } else {
+      prepared[key] = prepareOutgoingPayload(propValue);
+    }
+  }
+  if (
+    typeof prepared.seconds === 'number' &&
+    Number.isFinite(prepared.seconds)
+  ) {
+    prepared.seconds = Math.trunc(prepared.seconds);
+    prepared.nanos =
+      typeof prepared.nanos === 'number' && Number.isFinite(prepared.nanos)
+        ? Math.trunc(prepared.nanos)
+        : 0;
+  }
+  return prepared;
+}
+
+/**
  * Recursively normalizes incoming native bridge payloads so cross-platform
- * runtime representations match `types.ts` (specifically converting iOS
- * `Money.units` and `LoyaltyAmount.units` Int64 strings to JS `number`s).
+ * runtime representations match `types.ts` (converting iOS `Money.units`,
+ * `LoyaltyAmount.units`, and `Timestamp`/`Duration` numeric strings to JS
+ * `number`s, and exposing `SessionEndedEvent.storeSchedule` when present on
+ * `endSession`).
  */
 function normalizeIncomingPayload(value: unknown): unknown {
   if (value === null || value === undefined || typeof value !== 'object') {
@@ -82,7 +122,7 @@ function normalizeIncomingPayload(value: unknown): unknown {
     if (key === 'customIntegrationAttributes') {
       normalized[key] = propValue;
     } else if (
-      (key === 'units' || key === 'nanos') &&
+      (key === 'units' || key === 'nanos' || key === 'seconds') &&
       typeof propValue === 'string' &&
       propValue.trim() !== ''
     ) {
@@ -91,6 +131,18 @@ function normalizeIncomingPayload(value: unknown): unknown {
     } else {
       normalized[key] = normalizeIncomingPayload(propValue);
     }
+  }
+  const endSession = normalized.endSession;
+  if (
+    endSession &&
+    typeof endSession === 'object' &&
+    !Array.isArray(endSession) &&
+    normalized.storeSchedule === undefined &&
+    (endSession as Record<string, unknown>).storeSchedule !== undefined
+  ) {
+    normalized.storeSchedule = (
+      endSession as Record<string, unknown>
+    ).storeSchedule;
   }
   return normalized;
 }
@@ -127,28 +179,28 @@ const NATIVE_EVENT_EMITTERS: {
  */
 export class FoodOrderingClient {
   private delegate?: FoodOrderingDelegate;
-  private authTokenProvider?: AuthTokenProvider;
   private delegateBridgeSubscriptions: FoodOrderingSubscription[] = [];
   private subscriptions: TrackedSubscription[] = [];
 
   /**
    * Initializes and configures the native `FoodOrderingClient`.
    *
-   * Call this once before starting an ordering session. You can supply a
-   * `FoodOrderingDelegate` either via `config.delegate` or by calling
-   * `setDelegate(delegate)` to handle auth token requests, `finalizeOrder`,
-   * `orderPrices`, `submitOrder`, `orderStatus`, audio levels, and stream events.
+   * Call this once before starting an ordering session. Supply a
+   * `FoodOrderingDelegate` (implementing `handleAuthTokenRequest`) either via
+   * `config.delegate` or by calling `setDelegate(delegate)` before `startSession()`.
    */
   async initialize(config: FoodOrderingClientConfig): Promise<void> {
-    const { delegate, authTokenProvider, ...nativeConfig } = config;
+    const { delegate, ...nativeConfig } = config;
     if (delegate) {
       this.setDelegate(delegate);
     }
-    if (authTokenProvider) {
-      this.setAuthTokenProvider(authTokenProvider);
-    }
     this.ensureDelegateBridgeSubscriptions();
-    await NativeFoodOrdering.initialize(toUnsafeObject(nativeConfig));
+    await NativeFoodOrdering.initialize(
+      toUnsafeObject({
+        ...prepareOutgoingPayload(nativeConfig) as Record<string, unknown>,
+        __hasLoyaltyHandler: Boolean(this.delegate?.handleLoyalty),
+      })
+    );
   }
 
   /**
@@ -159,33 +211,20 @@ export class FoodOrderingClient {
   }
 
   /**
-   * Registers the `FoodOrderingDelegate` that handles client execution requests
-   * (`handleFinalizeOrder`, `handleOrderPrices`, `handleSubmitOrder`, `handleOrderStatus`),
-   * auth token requests (`handleAuthTokenRequest`), microphone audio level updates
-   * (`handleAudioLevel`), and optional unified `handleEvent` callbacks.
+   * Registers the `FoodOrderingDelegate` that handles auth token requests
+   * (`handleAuthTokenRequest`), client execution requests (`handleFinalizeOrder`,
+   * `handleOrderPrices`, `handleSubmitOrder`, `handleOrderStatus`, `handleLoyalty`),
+   * microphone audio level updates (`handleAudioLevel`), and optional unified
+   * `handleEvent` callbacks.
    */
   setDelegate(delegate: FoodOrderingDelegate): void {
+    if (typeof delegate?.handleAuthTokenRequest !== 'function') {
+      throw new Error(
+        'FoodOrderingDelegate.handleAuthTokenRequest is required.'
+      );
+    }
     this.delegate = delegate;
     this.ensureDelegateBridgeSubscriptions();
-  }
-
-  /**
-   * Registers an async callback that supplies OAuth2 / Bearer tokens whenever
-   * the native ordering stream connects or reconnects after returning to the foreground.
-   */
-  setAuthTokenProvider(provider: AuthTokenProvider): void {
-    this.authTokenProvider = provider;
-    this.ensureDelegateBridgeSubscriptions();
-  }
-
-  /**
-   * Explicitly sets or updates the auth token cached on the native bridge.
-   *
-   * @param token Non-blank OAuth2 / Bearer token string.
-   * @param expiry Optional ISO 8601 expiration timestamp (e.g. `"2026-10-16T18:34:30Z"`).
-   */
-  async setAuthToken(token: string, expiry?: string): Promise<void> {
-    await NativeFoodOrdering.setAuthToken(token, expiry ?? null);
   }
 
   /**
@@ -210,8 +249,23 @@ export class FoodOrderingClient {
    * @returns The active `sessionId` string.
    */
   async startSession(config: OrderingSessionConfig): Promise<string> {
+    if (typeof this.delegate?.handleAuthTokenRequest !== 'function') {
+      throw new Error(
+        'FoodOrderingDelegate with handleAuthTokenRequest must be registered via configure({ ..., delegate }) or setDelegate(delegate) before starting a session.'
+      );
+    }
     this.ensureDelegateBridgeSubscriptions();
-    return NativeFoodOrdering.startSession(toUnsafeObject(config));
+    const { featureGates, featureGate, ...rest } = config;
+    const normalizedConfig: Record<string, unknown> = {
+      ...rest,
+      ...(featureGate ?? featureGates
+        ? { featureGate: featureGate ?? featureGates }
+        : {}),
+      __hasLoyaltyHandler: Boolean(this.delegate?.handleLoyalty),
+    };
+    return NativeFoodOrdering.startSession(
+      toUnsafeObject(prepareOutgoingPayload(normalizedConfig))
+    );
   }
 
   /**
@@ -227,7 +281,9 @@ export class FoodOrderingClient {
    * client side (for example, via a touch UI).
    */
   async updateOrderState(order: Order): Promise<void> {
-    await NativeFoodOrdering.updateOrderState(toUnsafeObject(order));
+    await NativeFoodOrdering.updateOrderState(
+      toUnsafeObject(prepareOutgoingPayload(order))
+    );
   }
 
   /**
@@ -281,7 +337,6 @@ export class FoodOrderingClient {
     }
     this.delegateBridgeSubscriptions = [];
     this.delegate = undefined;
-    this.authTokenProvider = undefined;
     await NativeFoodOrdering.release();
   }
 
@@ -373,7 +428,7 @@ export class FoodOrderingClient {
   }
 
   /**
-   * Subscribes to contextual suggested items, modifiers, stores, and action chips (`suggestedOptions`).
+   * Subscribes to contextual suggested items, modifiers, stores, offers, and action chips (`suggestedOptions`).
    */
   onSuggestedOptions(
     listener: (event: SuggestedOptionsEvent) => void
@@ -391,7 +446,7 @@ export class FoodOrderingClient {
   }
 
   /**
-   * Subscribes to agent events such as `restartOrder` (`agentEvent`).
+   * Subscribes to agent events such as `'RESTART_ORDER'` and `'STORE_CHANGE'` (`agentEvent`).
    */
   onAgentEvent(
     listener: (event: AgentEventPayload) => void
@@ -463,20 +518,24 @@ export class FoodOrderingClient {
           if (!requestId) {
             return;
           }
-          const handler = this.delegate
-            ? () => this.delegate!.handleAuthTokenRequest()
-            : this.authTokenProvider;
-          if (!handler) {
+          if (typeof this.delegate?.handleAuthTokenRequest !== 'function') {
             NativeFoodOrdering.rejectDelegateRequest(
               requestId,
-              UNIMPLEMENTED_DELEGATE_ERROR
+              'No FoodOrderingDelegate registered. Register delegate.handleAuthTokenRequest before starting a session.'
             );
             return;
           }
           try {
-            const result = await handler();
+            const result = await this.delegate.handleAuthTokenRequest();
             const normalized: FoodOrderingClientAuthToken =
               typeof result === 'string' ? { token: result } : result;
+            if (!normalized?.token || normalized.token.trim().length === 0) {
+              NativeFoodOrdering.rejectDelegateRequest(
+                requestId,
+                'handleAuthTokenRequest returned an empty auth token.'
+              );
+              return;
+            }
             NativeFoodOrdering.respondToAuthTokenRequest(
               requestId,
               toUnsafeObject(normalized)
@@ -518,7 +577,7 @@ export class FoodOrderingClient {
             );
             NativeFoodOrdering.respondToFinalizeOrder(
               requestId,
-              toUnsafeObject(response)
+              toUnsafeObject(prepareOutgoingPayload(response))
             );
           } catch (err) {
             NativeFoodOrdering.rejectDelegateRequest(
@@ -555,7 +614,7 @@ export class FoodOrderingClient {
             );
             NativeFoodOrdering.respondToSubmitOrder(
               requestId,
-              toUnsafeObject(response)
+              toUnsafeObject(prepareOutgoingPayload(response))
             );
           } catch (err) {
             NativeFoodOrdering.rejectDelegateRequest(
@@ -592,7 +651,7 @@ export class FoodOrderingClient {
             );
             NativeFoodOrdering.respondToOrderPrices(
               requestId,
-              toUnsafeObject(response)
+              toUnsafeObject(prepareOutgoingPayload(response))
             );
           } catch (err) {
             NativeFoodOrdering.rejectDelegateRequest(
@@ -629,7 +688,7 @@ export class FoodOrderingClient {
             );
             NativeFoodOrdering.respondToOrderStatus(
               requestId,
-              toUnsafeObject(response)
+              toUnsafeObject(prepareOutgoingPayload(response))
             );
           } catch (err) {
             NativeFoodOrdering.rejectDelegateRequest(
@@ -641,7 +700,50 @@ export class FoodOrderingClient {
       )
     );
 
-    // 6. Audio Level (handleAudioLevel)
+    // 6. Loyalty Request (handleLoyalty)
+    this.delegateBridgeSubscriptions.push(
+      NativeFoodOrdering.onLoyaltyRequested(
+        async (raw: CodegenTypes.UnsafeObject) => {
+          const envelope =
+            fromUnsafeObject<NativeDelegateRequestEnvelope<LoyaltyRequest>>(
+              raw
+            );
+          const requestId = envelope?.requestId;
+          if (!requestId) {
+            return;
+          }
+          if (!this.delegate?.handleLoyalty) {
+            NativeFoodOrdering.respondToLoyalty(
+              requestId,
+              toUnsafeObject({ __unhandled: true })
+            );
+            return;
+          }
+          try {
+            const response = await this.delegate.handleLoyalty(
+              envelope.request ?? {
+                category: 'LOYALTY_ACTION_CATEGORY_UNSPECIFIED',
+              }
+            );
+            NativeFoodOrdering.respondToLoyalty(
+              requestId,
+              toUnsafeObject(prepareOutgoingPayload(response ?? {}))
+            );
+          } catch (err) {
+            NativeFoodOrdering.respondToLoyalty(
+              requestId,
+              toUnsafeObject({
+                __error: true,
+                errorMessage:
+                  err instanceof Error ? err.message : 'handleLoyalty failed.',
+              })
+            );
+          }
+        }
+      )
+    );
+
+    // 7. Audio Level (handleAudioLevel)
     this.delegateBridgeSubscriptions.push(
       NativeFoodOrdering.onAudioLevel((raw: CodegenTypes.UnsafeObject) => {
         const payload = fromUnsafeObject<AudioLevelEvent>(raw);
@@ -651,7 +753,7 @@ export class FoodOrderingClient {
       })
     );
 
-    // 7. Forward FoodOrderingServiceEvent (OrderResponse) to delegate.handleEvent
+    // 8. Forward FoodOrderingServiceEvent (OrderResponse) to delegate.handleEvent
     const forwardEvent = <
       K extends Exclude<keyof FoodOrderingEventMap, 'audioLevel'>,
     >(

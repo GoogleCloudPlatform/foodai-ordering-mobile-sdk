@@ -40,10 +40,7 @@ declare function fetch(
  */
 export interface DemoAppConfig {
   readonly authTokenUrl?: string;
-  readonly clientConfig: Omit<
-    FoodOrderingClientConfig,
-    'delegate' | 'authTokenProvider'
-  >;
+  readonly clientConfig: Omit<FoodOrderingClientConfig, 'delegate'>;
   readonly sessionConfig: OrderingSessionConfig;
   readonly fetchAuthToken: () => Promise<FoodOrderingClientAuthToken>;
 }
@@ -66,7 +63,7 @@ export const DEMO_APP_CONFIG: DemoAppConfig = {
   clientConfig: {
     // TODO(integrator): Replace with your Google Cloud project ID/name.
     gcpProjectName: '<YOUR_GCP_PROJECT_ID>',
-    // TODO(integrator): Replace with your CES/Food AI location (e.g. 'global' or 'us-central1').
+    // TODO(integrator): Replace with your Food Ordering AI Agent location (e.g. 'global' or 'us-central1').
     location: '<YOUR_GCP_LOCATION>',
     // TODO(integrator): Replace with your configured Food AI brand ID.
     brand: '<YOUR_BRAND_ID>',
@@ -78,6 +75,11 @@ export const DEMO_APP_CONFIG: DemoAppConfig = {
     daypartId: 'lunch',
     userInfo: {
       preferredName: 'Alex',
+      // Optional: Provide real-time user coordinates for store lookup & selection:
+      // location: {
+      //   coordinates: { latitude: 37.422, longitude: -122.084 },
+      //   captureTime: { seconds: Math.floor(Date.now() / 1000) },
+      // },
       // Note: General PaymentInfo never carries a CVV field; creditCardCvv is
       // only provided on SubmitOrderPaymentInfo during handleSubmitOrder.
       paymentInfo: {
@@ -93,7 +95,7 @@ export const DEMO_APP_CONFIG: DemoAppConfig = {
     initialOrder: {
       items: [],
       fulfillment: {
-        fulfillmentMethod: 'DRIVE_THRU',
+        fulfillmentMethod: 'FULFILLMENT_METHOD_DRIVE_THRU',
       },
     },
     featureGate: {
@@ -101,6 +103,8 @@ export const DEMO_APP_CONFIG: DemoAppConfig = {
       revampedPaymentFlowEnabled: true,
       menuResponseEnabled: true,
       enableOrderStatusRetrieval: true,
+      storeSelectionEnabled: true,
+      offersAndLoyaltyEnabled: true,
     },
   },
   fetchAuthToken: async (): Promise<FoodOrderingClientAuthToken> => {

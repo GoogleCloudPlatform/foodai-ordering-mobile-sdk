@@ -21,28 +21,130 @@ public typealias FoodOrderingPromiseResolveBlock = (Any?) -> Void
 /// Objective-C compatible promise reject callback matching `RCTPromiseRejectBlock`.
 public typealias FoodOrderingPromiseRejectBlock = (String?, String?, Error?) -> Void
 
+/// Seam over `FoodOrderingClient` enabling deterministic XCTest verification without live audio or
+/// network streams.
+public protocol FoodOrderingClientControlling: AnyObject, Sendable {
+  func configure(_ config: FoodOrderingClientConfig)
+  func setDelegate(_ delegate: (any FoodOrderingClientDelegate)?)
+  func requestMicrophonePermission() async -> Bool
+  func startSession(
+    sessionConfig: OrderingSessionConfig
+  ) async throws -> AsyncThrowingStream<OrderResponse, Error>
+  func sendText(_ text: String)
+  func updateOrderState(_ order: Order)
+  func sendCustomizedInput(_ input: CustomizedInput)
+  func pauseMicrophone()
+  func resumeMicrophone()
+  func stopSession(finishPlayingAudio: Bool)
+}
+
+private final class DefaultFoodOrderingClientController: FoodOrderingClientControlling, Sendable {
+  func configure(_ config: FoodOrderingClientConfig) {
+    FoodOrderingClient.configure(config)
+  }
+
+  func setDelegate(_ delegate: (any FoodOrderingClientDelegate)?) {
+    FoodOrderingClient.shared.setDelegate(delegate)
+  }
+
+  func requestMicrophonePermission() async -> Bool {
+    await FoodOrderingClient.shared.requestMicrophonePermission()
+  }
+
+  func startSession(
+    sessionConfig: OrderingSessionConfig
+  ) async throws -> AsyncThrowingStream<OrderResponse, Error> {
+    try await FoodOrderingClient.shared.startSession(sessionConfig: sessionConfig)
+  }
+
+  func sendText(_ text: String) {
+    FoodOrderingClient.shared.sendText(text)
+  }
+
+  func updateOrderState(_ order: Order) {
+    FoodOrderingClient.shared.updateOrderState(order)
+  }
+
+  func sendCustomizedInput(_ input: CustomizedInput) {
+    FoodOrderingClient.shared.sendCustomizedInput(input)
+  }
+
+  func pauseMicrophone() {
+    FoodOrderingClient.shared.pauseMicrophone()
+  }
+
+  func resumeMicrophone() {
+    FoodOrderingClient.shared.resumeMicrophone()
+  }
+
+  func stopSession(finishPlayingAudio: Bool) {
+    FoodOrderingClient.shared.stopSession(finishPlayingAudio: finishPlayingAudio)
+  }
+}
+
+/// Minimal `FoodOrderingClientDelegate` conformer that intentionally leaves `handleLoyalty`
+/// unimplemented so `FoodOrderingSwiftImpl` can delegate to the SDK's default unregistered-handler
+/// fallback when no JavaScript `handleLoyalty` callback is provided.
+private final class UnimplementedLoyaltyFallbackDelegate: FoodOrderingClientDelegate, Sendable {
+  func handleAuthTokenRequest() async -> Result<FoodOrderingClientAuthToken, Error> {
+    .failure(NSError(domain: "FoodOrderingModule", code: -1))
+  }
+
+  func handleEvent(_ event: FoodOrderingServiceEvent) {}
+
+  func handleFinalizeOrder(
+    request: FinalizeOrderRequest
+  ) async -> Result<FinalizeOrderResponse, Error> {
+    .failure(NSError(domain: "FoodOrderingModule", code: -1))
+  }
+
+  func handleOrderPrices(
+    request: OrderPricesRequest
+  ) async -> Result<OrderPricesResponse, Error> {
+    .failure(NSError(domain: "FoodOrderingModule", code: -1))
+  }
+
+  func handleSubmitOrder(
+    request: SubmitOrderRequest
+  ) async -> Result<SubmitOrderResponse, Error> {
+    .failure(NSError(domain: "FoodOrderingModule", code: -1))
+  }
+
+  func handleOrderStatus(
+    request: OrderStatusRequest
+  ) async -> Result<OrderStatusResponse, Error> {
+    .failure(NSError(domain: "FoodOrderingModule", code: -1))
+  }
+}
+
 /// Swift implementation backing the Objective-C++ `FoodOrderingModule` TurboModule (`NativeFoodOrderingSpec`),
 /// bridging JavaScript calls, `FoodOrderingClientDelegate` callbacks, and stream events to the iOS
-/// `FoodOrderingClient.shared` singleton.
+/// `FoodOrderingClient`.
 @objc(FoodOrderingSwiftImpl)
 public final class FoodOrderingSwiftImpl:
   NSObject, FoodOrderingClientDelegate, @unchecked Sendable
 {
 
-  @objc public override init() {
+  private let clientController: any FoodOrderingClientControlling
+
+  public init(clientController: any FoodOrderingClientControlling) {
+    self.clientController = clientController
     super.init()
+  }
+
+  @objc public convenience override init() {
+    self.init(clientController: DefaultFoodOrderingClientController())
   }
 
   /// Callback wired by `FoodOrderingModule.mm` that routes events to Codegen's `emitOn*` methods.
   @objc public var eventEmitterCallback: ((NSString, NSDictionary) -> Void)?
 
+  private var activeSessionToken: UUID?
   private var activeSessionId: String?
   private var latestSessionUserInfo: UserInfo?
   private var streamListenerTask: Task<Void, Never>?
 
   private let requestLock = NSLock()
-  private var cachedToken: String?
-  private var cachedTokenExpiry: Date?
   private var pendingDelegateContinuations:
     [String: CheckedContinuation<Result<NSDictionary, Error>, Never>] = [:]
 
@@ -91,30 +193,14 @@ public final class FoodOrderingSwiftImpl:
 
     let logLevel = parseLogLevel(config["logLevel"] as? String)
 
-    if let initialToken = config["authToken"] as? String, !initialToken.isEmpty {
-      let expiryString = config["authTokenExpiry"] as? String
-      storeCachedToken(token: initialToken, expiryISO8601: expiryString)
-    }
-
     let clientConfig = FoodOrderingClientConfig(
       gcpProjectName: gcpProjectName,
       location: location,
       brand: brand,
       logLevel: logLevel
     )
-    FoodOrderingClient.configure(clientConfig)
-    FoodOrderingClient.shared.setDelegate(self)
-    resolve(nil)
-  }
-
-  @objc(setAuthToken:expiry:resolver:rejecter:)
-  public func setAuthToken(
-    _ token: NSString,
-    expiry: NSString?,
-    resolver resolve: @escaping FoodOrderingPromiseResolveBlock,
-    rejecter reject: @escaping FoodOrderingPromiseRejectBlock
-  ) {
-    storeCachedToken(token: token as String, expiryISO8601: expiry as String?)
+    clientController.configure(clientConfig)
+    clientController.setDelegate(self)
     resolve(nil)
   }
 
@@ -122,10 +208,6 @@ public final class FoodOrderingSwiftImpl:
 
   @objc(respondToAuthTokenRequest:response:)
   public func respondToAuthTokenRequest(_ requestId: NSString, response: NSDictionary) {
-    if let token = response["token"] as? String, !token.isEmpty {
-      let expiry = response["expiry"] as? String
-      storeCachedToken(token: token, expiryISO8601: expiry)
-    }
     completePendingRequest(requestId: requestId as String, result: .success(response))
   }
 
@@ -149,6 +231,11 @@ public final class FoodOrderingSwiftImpl:
     completePendingRequest(requestId: requestId as String, result: .success(response))
   }
 
+  @objc(respondToLoyalty:response:)
+  public func respondToLoyalty(_ requestId: NSString, response: NSDictionary) {
+    completePendingRequest(requestId: requestId as String, result: .success(response))
+  }
+
   @objc(rejectDelegateRequest:errorMessage:)
   public func rejectDelegateRequest(_ requestId: NSString, errorMessage: NSString) {
     completePendingRequest(
@@ -163,7 +250,7 @@ public final class FoodOrderingSwiftImpl:
     rejecter reject: @escaping FoodOrderingPromiseRejectBlock
   ) {
     Task {
-      let granted = await FoodOrderingClient.shared.requestMicrophonePermission()
+      let granted = await self.clientController.requestMicrophonePermission()
       resolve(granted)
     }
   }
@@ -194,7 +281,10 @@ public final class FoodOrderingSwiftImpl:
     let initialOrder = (configDict["initialOrder"] as? NSDictionary).flatMap {
       decodeModel(Order.self, from: $0)
     }
-    let featureGate = (configDict["featureGate"] as? NSDictionary).flatMap {
+    let featureGateDict =
+      (configDict["featureGate"] as? NSDictionary)
+      ?? (configDict["featureGates"] as? NSDictionary)
+    let featureGate = featureGateDict.flatMap {
       decodeModel(FeatureGates.self, from: $0)
     }
 
@@ -208,14 +298,16 @@ public final class FoodOrderingSwiftImpl:
       initialUtterance: initialUtterance
     )
 
-    FoodOrderingClient.shared.setDelegate(self)
+    clientController.setDelegate(self)
 
     Task {
       do {
-        let responseStream = try await FoodOrderingClient.shared.startSession(
+        let responseStream = try await self.clientController.startSession(
           sessionConfig: sessionConfig
         )
         self.streamListenerTask?.cancel()
+        let sessionToken = UUID()
+        self.activeSessionToken = sessionToken
         self.activeSessionId = resolvedSessionId
         self.latestSessionUserInfo = userInfo
         self.streamListenerTask = Task { [weak self] in
@@ -223,12 +315,16 @@ public final class FoodOrderingSwiftImpl:
             for try await response in responseStream {
               if Task.isCancelled { break }
               if let started = response.sessionStarted, !started.sessionID.isEmpty {
-                self?.activeSessionId = started.sessionID
+                self?.updateActiveSessionId(started.sessionID, matchingToken: sessionToken)
               }
             }
           } catch {
             guard let self = self, !Task.isCancelled else { return }
-            self.emitStreamError(error, sessionId: resolvedSessionId)
+            let errorSessionId =
+              (self.activeSessionToken == sessionToken ? self.activeSessionId : nil)
+              ?? resolvedSessionId
+            self.emitStreamError(error, sessionId: errorSessionId)
+            self.clearActiveSessionState(matchingToken: sessionToken)
           }
         }
         resolve(resolvedSessionId)
@@ -245,7 +341,7 @@ public final class FoodOrderingSwiftImpl:
     resolver resolve: @escaping FoodOrderingPromiseResolveBlock,
     rejecter reject: @escaping FoodOrderingPromiseRejectBlock
   ) {
-    FoodOrderingClient.shared.sendText(text as String)
+    clientController.sendText(text as String)
     resolve(nil)
   }
 
@@ -259,7 +355,7 @@ public final class FoodOrderingSwiftImpl:
       reject("UPDATE_ORDER_STATE_ERROR", "Failed to decode Order dictionary.", nil)
       return
     }
-    FoodOrderingClient.shared.updateOrderState(order)
+    clientController.updateOrderState(order)
     resolve(nil)
   }
 
@@ -276,7 +372,7 @@ public final class FoodOrderingSwiftImpl:
         stringParams[keyStr] = "\(value)"
       }
     }
-    FoodOrderingClient.shared.sendCustomizedInput(CustomizedInput(parameters: stringParams))
+    clientController.sendCustomizedInput(CustomizedInput(parameters: stringParams))
     resolve(nil)
   }
 
@@ -285,7 +381,7 @@ public final class FoodOrderingSwiftImpl:
     _ resolve: @escaping FoodOrderingPromiseResolveBlock,
     rejecter reject: @escaping FoodOrderingPromiseRejectBlock
   ) {
-    FoodOrderingClient.shared.pauseMicrophone()
+    clientController.pauseMicrophone()
     resolve(nil)
   }
 
@@ -294,7 +390,7 @@ public final class FoodOrderingSwiftImpl:
     _ resolve: @escaping FoodOrderingPromiseResolveBlock,
     rejecter reject: @escaping FoodOrderingPromiseRejectBlock
   ) {
-    FoodOrderingClient.shared.resumeMicrophone()
+    clientController.resumeMicrophone()
     resolve(nil)
   }
 
@@ -304,11 +400,8 @@ public final class FoodOrderingSwiftImpl:
     resolver resolve: @escaping FoodOrderingPromiseResolveBlock,
     rejecter reject: @escaping FoodOrderingPromiseRejectBlock
   ) {
-    streamListenerTask?.cancel()
-    streamListenerTask = nil
-    FoodOrderingClient.shared.stopSession(finishPlayingAudio: waitUntilComplete)
-    activeSessionId = nil
-    latestSessionUserInfo = nil
+    clearActiveSessionState()
+    clientController.stopSession(finishPlayingAudio: waitUntilComplete)
     resolve(nil)
   }
 
@@ -317,11 +410,8 @@ public final class FoodOrderingSwiftImpl:
     _ resolve: @escaping FoodOrderingPromiseResolveBlock,
     rejecter reject: @escaping FoodOrderingPromiseRejectBlock
   ) {
-    streamListenerTask?.cancel()
-    streamListenerTask = nil
-    FoodOrderingClient.shared.stopSession(finishPlayingAudio: false)
-    activeSessionId = nil
-    latestSessionUserInfo = nil
+    clearActiveSessionState()
+    clientController.stopSession(finishPlayingAudio: false)
     cancelAllPendingDelegateRequests()
     resolve(nil)
   }
@@ -335,22 +425,18 @@ public final class FoodOrderingSwiftImpl:
     )
     switch responseResult {
     case .success(let dict):
-      if let token = dict["token"] as? String,
+      guard
+        let token = dict["token"] as? String,
         !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      {
-        let expiryStr = dict["expiry"] as? String
-        storeCachedToken(token: token, expiryISO8601: expiryStr)
-        let expiryDate = expiryStr.flatMap { ISO8601DateFormatter().date(from: $0) }
-        return .success(FoodOrderingClientAuthToken(token: token, expirationDate: expiryDate))
+      else {
+        return .failure(BridgeError.delegateError("No auth token provided by JS delegate."))
       }
-    case .failure:
-      break
+      let expiryStr = dict["expiry"] as? String
+      let expiryDate = expiryStr.flatMap { ISO8601DateFormatter().date(from: $0) }
+      return .success(FoodOrderingClientAuthToken(token: token, expirationDate: expiryDate))
+    case .failure(let error):
+      return .failure(error)
     }
-
-    if let fallback = getFallbackCachedAuthToken() {
-      return .success(fallback)
-    }
-    return .failure(BridgeError.delegateError("No auth token provided by JS delegate."))
   }
 
   public func handleFinalizeOrder(
@@ -432,6 +518,35 @@ public final class FoodOrderingSwiftImpl:
     }
   }
 
+  public func handleLoyalty(
+    request: LoyaltyRequest
+  ) async -> Result<LoyaltyResponse, Error> {
+    let payload = encodeToDictionary(request) ?? [:]
+    let responseResult = await sendDelegateRequest(
+      eventName: "onLoyaltyRequested",
+      requestPayload: payload
+    )
+    switch responseResult {
+    case .success(let dict):
+      if (dict["__unhandled"] as? Bool) == true {
+        return await UnimplementedLoyaltyFallbackDelegate().handleLoyalty(request: request)
+      }
+      if (dict["__error"] as? Bool) == true {
+        let message = (dict["errorMessage"] as? String) ?? "Loyalty handler failed."
+        return .failure(BridgeError.delegateError(message))
+      }
+      guard let decoded = decodeModel(LoyaltyResponse.self, from: dict) else {
+        return .failure(BridgeError.delegateError("Failed to decode LoyaltyResponse."))
+      }
+      return .success(decoded)
+    case .failure(let error):
+      if isUnimplementedDelegateError(error) {
+        return await UnimplementedLoyaltyFallbackDelegate().handleLoyalty(request: request)
+      }
+      return .failure(error)
+    }
+  }
+
   public func handleAudioLevel(_ audioLevel: Float) {
     emitEvent("audioLevel", body: ["audioLevel": Double(audioLevel)])
   }
@@ -466,13 +581,19 @@ public final class FoodOrderingSwiftImpl:
       if let agentResponse = ended.agentResponse {
         endDict["agentResponse"] = agentResponse
       }
-      emitEvent(
-        "sessionEnded",
-        body: [
-          "sessionId": resolvedId,
-          "endSession": endDict,
-        ]
-      )
+      let scheduleDict = ended.storeSchedule.flatMap { encodeToDictionary($0) }
+      if let scheduleDict = scheduleDict {
+        endDict["storeSchedule"] = scheduleDict
+      }
+      var body: [String: Any] = [
+        "sessionId": resolvedId,
+        "endSession": endDict,
+      ]
+      if let scheduleDict = scheduleDict {
+        body["storeSchedule"] = scheduleDict
+      }
+      emitEvent("sessionEnded", body: body)
+      clearActiveSessionState()
     case .sessionPaused:
       emitEvent(
         "sessionLifecycle",
@@ -494,10 +615,22 @@ public final class FoodOrderingSwiftImpl:
     case .interruptionSignal:
       emitEvent("interruptionSignal", body: ["sessionId": sessionId])
     case .agentEvent(let agentEvent):
-      // OrderResponse.AgentEvent isn't Encodable, so map its fields explicitly.
-      var dict: [String: Any] = [:]
-      if let restartOrder = agentEvent.restartOrder {
-        dict["restartOrder"] = ["confirmationStep": restartOrder.confirmationStep]
+      let dict: [String: Any]
+      switch agentEvent {
+      case .restartOrder(let restartOrder):
+        dict = [
+          "type": "RESTART_ORDER",
+          "confirmationStep": restartOrder.confirmationStep,
+        ]
+      case .storeChange(let storeChange):
+        dict = [
+          "type": "STORE_CHANGE",
+          "store": storeChange.store,
+        ]
+      case .unknown:
+        dict = ["type": "UNKNOWN"]
+      @unknown default:
+        dict = ["type": "UNKNOWN"]
       }
       emitEvent(
         "agentEvent",
@@ -555,6 +688,22 @@ public final class FoodOrderingSwiftImpl:
 
   // MARK: - Native -> JS Request Continuation Helpers
 
+  private func updateActiveSessionId(_ sessionId: String, matchingToken token: UUID) {
+    guard activeSessionToken == token else { return }
+    activeSessionId = sessionId
+  }
+
+  private func clearActiveSessionState(matchingToken token: UUID? = nil) {
+    if let token = token, activeSessionToken != token {
+      return
+    }
+    activeSessionToken = nil
+    activeSessionId = nil
+    latestSessionUserInfo = nil
+    streamListenerTask?.cancel()
+    streamListenerTask = nil
+  }
+
   private func isUnimplementedDelegateError(_ error: Error) -> Bool {
     let message = error.localizedDescription
     return message == "UNIMPLEMENTED" || message.hasPrefix("No React Native listeners")
@@ -568,9 +717,13 @@ public final class FoodOrderingSwiftImpl:
       paymentInfo.creditCardLastFourDigits?.isEmpty == false
       ? paymentInfo.creditCardLastFourDigits : nil
     let paymentMethod =
-      (paymentInfo.paymentMethod != nil && paymentInfo.paymentMethod != .unspecified)
+      (paymentInfo.paymentMethod != nil
+        && paymentInfo.paymentMethod != .unspecified
+        && paymentInfo.paymentMethod != .unknown)
       ? paymentInfo.paymentMethod : nil
-    guard lastFourDigits != nil || paymentMethod != nil else {
+    let hasPaymentFlowInfo =
+      lastFourDigits != nil || (paymentMethod != nil && paymentMethod != .cash)
+    guard hasPaymentFlowInfo else {
       return FinalizeOrderResponse(paymentFlowEnabled: false, paymentInfo: nil)
     }
     return FinalizeOrderResponse(
@@ -666,8 +819,10 @@ public final class FoodOrderingSwiftImpl:
       statusStr = "FAILED"
     case .unspecified:
       statusStr = "UNSPECIFIED"
+    case .unknown:
+      statusStr = "UNKNOWN"
     @unknown default:
-      statusStr = "UNSPECIFIED"
+      statusStr = "UNKNOWN"
     }
 
     let orderDict = orderState.order.flatMap { encodeToDictionary($0) }
@@ -756,27 +911,13 @@ public final class FoodOrderingSwiftImpl:
       return "REQUESTED_ORDER_STATUS"
     case .storeClosed:
       return "STORE_CLOSED"
+    case .requestedStoreSelection:
+      return "REQUESTED_STORE_SELECTION"
+    case .unknown:
+      return "UNKNOWN"
     @unknown default:
-      return "END_TYPE_UNSPECIFIED"
+      return "UNKNOWN"
     }
-  }
-
-  private func storeCachedToken(token: String, expiryISO8601: String?) {
-    let expiryDate = expiryISO8601.flatMap { ISO8601DateFormatter().date(from: $0) }
-    requestLock.lock()
-    cachedToken = token
-    cachedTokenExpiry = expiryDate
-    requestLock.unlock()
-  }
-
-  private func getFallbackCachedAuthToken() -> FoodOrderingClientAuthToken? {
-    requestLock.lock()
-    defer { requestLock.unlock() }
-    guard let token = cachedToken, !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    else {
-      return nil
-    }
-    return FoodOrderingClientAuthToken(token: token, expirationDate: cachedTokenExpiry)
   }
 
   private func encodeToDictionary<T: Encodable>(_ value: T) -> [String: Any]? {
