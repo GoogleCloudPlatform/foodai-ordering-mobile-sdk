@@ -170,7 +170,7 @@ internal data class FoodOrderingClientHandlers(
   val submitOrderHandler: FoodOrderingClientSubmitOrderHandler,
   val orderPricesHandler: FoodOrderingClientOrderPricesHandler,
   val orderStatusHandler: FoodOrderingClientOrderStatusHandler,
-  val loyaltyHandler: FoodOrderingClientLoyaltyHandler?,
+  val loyaltyHandler: FoodOrderingClientLoyaltyHandler,
 )
 
 private class RealFoodOrderingNativeClient(private val delegate: FoodOrderingClient) :
@@ -245,8 +245,6 @@ internal constructor(
   private var sessionJob: Job? = null
   private var audioLevelJob: Job? = null
 
-  @Volatile private var initializedSdkConfig: FoodOrderingClientConfig? = null
-  @Volatile private var clientHasLoyaltyHandler: Boolean = false
   @Volatile private var isSessionActive: Boolean = false
   @Volatile private var activeSessionId: String? = null
   @Volatile private var latestSessionUserInfo: UserInfo? = null
@@ -273,7 +271,6 @@ internal constructor(
         configMap.getString("brand")?.takeIf { it.isNotBlank() }
           ?: throw IllegalArgumentException("brand is required.")
       val logLevel = parseLogLevel(configMap.getOptionalString("logLevel"))
-      val hasLoyaltyHandler = configMap.getOptionalBoolean("__hasLoyaltyHandler") ?: false
 
       val sdkConfig =
         FoodOrderingClientConfig(
@@ -283,17 +280,15 @@ internal constructor(
           logLevel = logLevel,
         )
       sdkConfigurer(sdkConfig)
-      initializedSdkConfig = sdkConfig
-      recreateClient(hasLoyaltyHandler)
+      recreateClient()
       promise.resolve(null)
     } catch (e: Exception) {
       promise.reject("INITIALIZE_ERROR", e.message ?: "Failed to initialize FoodOrderingClient", e)
     }
   }
 
-  private fun recreateClient(hasLoyaltyHandler: Boolean): FoodOrderingNativeClient {
+  private fun recreateClient(): FoodOrderingNativeClient {
     client?.release()
-    clientHasLoyaltyHandler = hasLoyaltyHandler
     val created =
       clientFactory(
         FoodOrderingClientHandlers(
@@ -316,11 +311,7 @@ internal constructor(
               requestOrderStatusFromBridge(request)
             },
           loyaltyHandler =
-            if (hasLoyaltyHandler) {
-              FoodOrderingClientLoyaltyHandler { request -> requestLoyaltyFromBridge(request) }
-            } else {
-              null
-            },
+            FoodOrderingClientLoyaltyHandler { request -> requestLoyaltyFromBridge(request) },
         )
       )
     client = created
@@ -417,19 +408,6 @@ internal constructor(
           ?: sessionConfigMap.getOptionalMap("featureGates")
 
       val wasSessionActive = isSessionActive
-      val requestedHasLoyaltyHandler =
-        sessionConfigMap.getOptionalBoolean("__hasLoyaltyHandler") ?: clientHasLoyaltyHandler
-      val activeClient =
-        if (
-          !wasSessionActive &&
-            requestedHasLoyaltyHandler != clientHasLoyaltyHandler &&
-            initializedSdkConfig != null
-        ) {
-          clearActiveSessionState()
-          recreateClient(requestedHasLoyaltyHandler)
-        } else {
-          currentClient
-        }
 
       val sessionConfig =
         OrderingSessionConfig(
@@ -451,7 +429,7 @@ internal constructor(
       }
 
       val context = reactContext.currentActivity ?: reactContext
-      val responseFlow = activeClient.startSession(context, moduleScope, sessionConfig)
+      val responseFlow = currentClient.startSession(context, moduleScope, sessionConfig)
 
       if (!wasSessionActive) {
         val job =
@@ -472,11 +450,11 @@ internal constructor(
         job.start()
       }
 
-      if (isSessionActive && (activeClient !== currentClient || audioLevelJob?.isActive != true)) {
+      if (isSessionActive && audioLevelJob?.isActive != true) {
         audioLevelJob?.cancel()
         val audioJob =
           moduleScope.launch(start = CoroutineStart.LAZY) {
-            activeClient.audioLevelFlow.collect { level ->
+            currentClient.audioLevelFlow.collect { level ->
               val payload = createMap().apply { putDouble("audioLevel", level.toDouble()) }
               dispatchOnAudioLevel(payload)
             }
@@ -648,8 +626,6 @@ internal constructor(
 
   private fun cleanup() {
     clearActiveSessionState()
-    initializedSdkConfig = null
-    clientHasLoyaltyHandler = false
     client?.release()
     client = null
     pendingDelegateRequests.values.forEach {
@@ -853,10 +829,17 @@ internal constructor(
 
   private suspend fun requestLoyaltyFromBridge(request: LoyaltyRequest): LoyaltyResponse {
     val responseMap =
-      awaitDelegateResponse(
-        emitRequest = ::dispatchOnLoyaltyRequested,
-        requestMap = request.toWritableMap(),
-      )
+      try {
+        awaitDelegateResponse(
+          emitRequest = ::dispatchOnLoyaltyRequested,
+          requestMap = request.toWritableMap(),
+        )
+      } catch (e: Exception) {
+        if (e.message == UNIMPLEMENTED_DELEGATE_ERROR) {
+          throw IllegalStateException("Loyalty handler is not registered.")
+        }
+        throw e
+      }
     if (responseMap.getOptionalBoolean("__unhandled") == true) {
       throw IllegalStateException("Loyalty handler is not registered.")
     }
@@ -2142,6 +2125,9 @@ private fun Discount.toWritableMap(): WritableMap =
     putBoolean("autoApply", autoApply)
     image?.let { putMap("image", it.toWritableMap()) }
     putString("description", description)
+    if (customIntegrationAttributes.isNotEmpty()) {
+      putMap("customIntegrationAttributes", customIntegrationAttributes.toArbitraryWritableMap())
+    }
   }
 
 private fun SuggestedOffer.toWritableMap(): WritableMap =

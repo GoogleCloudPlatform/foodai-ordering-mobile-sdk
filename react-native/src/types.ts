@@ -1105,6 +1105,8 @@ export interface Discount {
   image?: Image;
   /** Human-readable summary or subtitle for this discount. */
   description: string;
+  /** Partner-specific non-PII metadata and display attributes for downstream integrations. */
+  customIntegrationAttributes?: Record<string, unknown>;
 }
 
 /**

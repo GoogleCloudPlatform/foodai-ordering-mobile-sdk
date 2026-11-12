@@ -253,7 +253,11 @@ final class FoodOrderingBridgeTests: XCTestCase {
                   type: .percentOff,
                   scope: .order,
                   percent: 10.0,
-                  autoApply: true
+                  autoApply: true,
+                  customIntegrationAttributes: [
+                    "promoCode": .string("HH10"),
+                    "stackable": .bool(false),
+                  ]
                 )
               ),
               .unknown,
@@ -272,10 +276,11 @@ final class FoodOrderingBridgeTests: XCTestCase {
       (offersArr?[0]["loyaltyReward"] as? NSDictionary)?["rewardId"] as? String,
       "rew-1"
     )
-    XCTAssertEqual(
-      (offersArr?[1]["discount"] as? NSDictionary)?["name"] as? String,
-      "discounts/10-off"
-    )
+    let discountDict = offersArr?[1]["discount"] as? NSDictionary
+    XCTAssertEqual(discountDict?["name"] as? String, "discounts/10-off")
+    let discountCustomAttrs = discountDict?["customIntegrationAttributes"] as? NSDictionary
+    XCTAssertEqual(discountCustomAttrs?["promoCode"] as? String, "HH10")
+    XCTAssertEqual(discountCustomAttrs?["stackable"] as? Bool, false)
     XCTAssertNil(offersArr?[2]["loyaltyReward"])
     XCTAssertNil(offersArr?[2]["discount"])
 

@@ -15,7 +15,7 @@
 require "json"
 
 package = JSON.parse(File.read(File.join(__dir__, "package.json")))
-foodai_ios_sdk_version = ENV["FOODAI_IOS_SDK_VERSION"] || "0.7.0"
+foodai_ios_sdk_version = ENV["FOODAI_IOS_SDK_VERSION"] || "0.7.1"
 
 Pod::Spec.new do |s|
   s.name         = "FoodaiOrderingReactNative"

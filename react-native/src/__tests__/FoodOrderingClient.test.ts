@@ -37,6 +37,31 @@ interface MockNativeModule {
   __resetAll: () => void;
 }
 
+interface MockPermissionsAndroid {
+  PERMISSIONS: { RECORD_AUDIO: string };
+  RESULTS: { GRANTED: string; DENIED: string; NEVER_ASK_AGAIN: string };
+  check: jest.Mock<Promise<boolean>, [string]>;
+  request: jest.Mock<Promise<string>, [string]>;
+}
+
+jest.mock('react-native', () => ({
+  Platform: {
+    OS: 'ios',
+  },
+  PermissionsAndroid: {
+    PERMISSIONS: {
+      RECORD_AUDIO: 'android.permission.RECORD_AUDIO',
+    },
+    RESULTS: {
+      GRANTED: 'granted',
+      DENIED: 'denied',
+      NEVER_ASK_AGAIN: 'never_ask_again',
+    },
+    check: jest.fn().mockResolvedValue(false),
+    request: jest.fn().mockResolvedValue('granted'),
+  },
+}));
+
 jest.mock('../NativeFoodOrdering', () => {
   const emitterNames = [
     'onSessionStarted',
@@ -125,6 +150,7 @@ jest.mock('../NativeFoodOrdering', () => {
   };
 });
 
+import { PermissionsAndroid, Platform } from 'react-native';
 import {
   FoodOrderingClient,
   NativeFoodOrdering,
@@ -137,12 +163,18 @@ import {
 } from '../index';
 
 const mockNative = NativeFoodOrdering as unknown as MockNativeModule;
+const mockPermissionsAndroid =
+  PermissionsAndroid as unknown as MockPermissionsAndroid;
+const mockPlatform = Platform as { OS: string };
 
 describe('FoodOrderingClient (0.7.0)', () => {
   let client: FoodOrderingClient;
 
   beforeEach(() => {
     mockNative.__resetAll();
+    mockPlatform.OS = 'ios';
+    mockPermissionsAndroid.check.mockResolvedValue(false);
+    mockPermissionsAndroid.request.mockResolvedValue('granted');
     client = new FoodOrderingClient();
   });
 
@@ -161,7 +193,6 @@ describe('FoodOrderingClient (0.7.0)', () => {
       gcpProjectName: 'demo-project',
       location: 'global',
       brand: 'demo-brand',
-      __hasLoyaltyHandler: false,
     });
 
     // Starting a session before registering a delegate rejects clearly
@@ -169,10 +200,9 @@ describe('FoodOrderingClient (0.7.0)', () => {
       client.startSession({ storeId: 'store-42' })
     ).rejects.toThrow(/FoodOrderingDelegate with handleAuthTokenRequest/);
 
-    // Register a delegate with handleLoyalty after initialize() and verify startSession upgrades __hasLoyaltyHandler
+    // Register a delegate with handleAuthTokenRequest and startSession
     client.setDelegate({
       handleAuthTokenRequest: async () => 'token-456',
-      handleLoyalty: async () => ({}),
     });
 
     const sessionId = await client.startSession({
@@ -229,7 +259,6 @@ describe('FoodOrderingClient (0.7.0)', () => {
           units: 'raw-partner-string',
         },
       },
-      __hasLoyaltyHandler: true,
     });
 
     // Also verify sendCustomizedInput preserves parameters without injecting nanos
@@ -395,6 +424,10 @@ describe('FoodOrderingClient (0.7.0)', () => {
                 },
                 autoApply: false,
                 description: 'Save up to $5',
+                customIntegrationAttributes: {
+                  promoCode: 'SAVE20',
+                  units: 'keep-discount-units-as-string',
+                },
               },
             },
             {},
@@ -440,6 +473,10 @@ describe('FoodOrderingClient (0.7.0)', () => {
     if (secondOffer && 'discount' in secondOffer && secondOffer.discount) {
       expect(secondOffer.discount.maxDiscountValue?.units).toBe(5);
       expect(secondOffer.discount.type).toBe('PERCENT_OFF');
+      expect(secondOffer.discount.customIntegrationAttributes).toEqual({
+        promoCode: 'SAVE20',
+        units: 'keep-discount-units-as-string',
+      });
     } else {
       throw new Error('Expected discount offer variant');
     }
@@ -453,11 +490,18 @@ describe('FoodOrderingClient (0.7.0)', () => {
     });
   });
 
-  it('bridges handleLoyalty round-trips for member lookup, guest {}, omitted handler, and thrown errors', async () => {
-    // 1. Omitted handleLoyalty -> responds with { __unhandled: true }
+  it('bridges handleLoyalty round-trips for member lookup, guest {}, omitted handler, mid-session setDelegate, and thrown errors', async () => {
+    await client.initialize({
+      gcpProjectName: 'demo-project',
+      location: 'global',
+      brand: 'demo-brand',
+    });
+
+    // 1. Start session with a delegate that has NO handleLoyalty -> responds immediately with { __unhandled: true }
     client.setDelegate({
       handleAuthTokenRequest: async () => 'tok',
     });
+    await client.startSession({ storeId: 'store-42' });
 
     await mockNative.__emit('onLoyaltyRequested', {
       requestId: 'req-unhandled',
@@ -471,7 +515,7 @@ describe('FoodOrderingClient (0.7.0)', () => {
       { __unhandled: true }
     );
 
-    // 2. Member lookup happy path (also normalizing incoming LoyaltyAmount.units & outgoing expireTime.nanos)
+    // 2. Mid-session setDelegate({ handleLoyalty }) takes effect immediately for the active session
     const receivedRequests: LoyaltyRequest[] = [];
     client.setDelegate({
       handleAuthTokenRequest: async () => 'tok',
@@ -658,5 +702,57 @@ describe('FoodOrderingClient (0.7.0)', () => {
       'auth-blank',
       'handleAuthTokenRequest returned an empty auth token.'
     );
+  });
+
+  it('requests microphone permission via PermissionsAndroid on Android and NativeFoodOrdering on iOS', async () => {
+    // 1. iOS delegates directly to NativeFoodOrdering.requestMicrophonePermission()
+    mockPlatform.OS = 'ios';
+    mockNative.requestMicrophonePermission.mockResolvedValueOnce(true);
+
+    await expect(client.requestMicrophonePermission()).resolves.toBe(true);
+    expect(mockNative.requestMicrophonePermission).toHaveBeenCalledTimes(1);
+    expect(mockPermissionsAndroid.check).not.toHaveBeenCalled();
+    expect(mockPermissionsAndroid.request).not.toHaveBeenCalled();
+
+    // 2. Android when permission is already granted skips PermissionsAndroid.request
+    mockNative.__resetAll();
+    mockPlatform.OS = 'android';
+    mockPermissionsAndroid.check.mockResolvedValueOnce(true);
+
+    await expect(client.requestMicrophonePermission()).resolves.toBe(true);
+    expect(mockPermissionsAndroid.check).toHaveBeenCalledWith(
+      'android.permission.RECORD_AUDIO'
+    );
+    expect(mockPermissionsAndroid.request).not.toHaveBeenCalled();
+    expect(mockNative.requestMicrophonePermission).not.toHaveBeenCalled();
+
+    // 3. Android when not yet granted prompts via PermissionsAndroid.request and returns true on GRANTED
+    mockNative.__resetAll();
+    mockPlatform.OS = 'android';
+    mockPermissionsAndroid.check.mockResolvedValueOnce(false);
+    mockPermissionsAndroid.request.mockResolvedValueOnce('granted');
+
+    await expect(client.requestMicrophonePermission()).resolves.toBe(true);
+    expect(mockPermissionsAndroid.check).toHaveBeenCalledWith(
+      'android.permission.RECORD_AUDIO'
+    );
+    expect(mockPermissionsAndroid.request).toHaveBeenCalledWith(
+      'android.permission.RECORD_AUDIO'
+    );
+    expect(mockNative.requestMicrophonePermission).not.toHaveBeenCalled();
+
+    // 4. Android returns false when PermissionsAndroid.request resolves DENIED or NEVER_ASK_AGAIN
+    mockNative.__resetAll();
+    mockPlatform.OS = 'android';
+    mockPermissionsAndroid.check.mockResolvedValueOnce(false);
+    mockPermissionsAndroid.request.mockResolvedValueOnce('denied');
+
+    await expect(client.requestMicrophonePermission()).resolves.toBe(false);
+
+    mockPermissionsAndroid.check.mockResolvedValueOnce(false);
+    mockPermissionsAndroid.request.mockResolvedValueOnce('never_ask_again');
+
+    await expect(client.requestMicrophonePermission()).resolves.toBe(false);
+    expect(mockNative.requestMicrophonePermission).not.toHaveBeenCalled();
   });
 });

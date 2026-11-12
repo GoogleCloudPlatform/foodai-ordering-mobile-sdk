@@ -32,7 +32,7 @@ target 'FoodAiOrderingExample' do
 
   # `use_native_modules!` above autolinks `FoodaiOrderingReactNative` from `../..`
   # as a `:path` development pod. Run `scripts/fetch-ios-sdk.sh` in `pre_install`
-  # so the matching `v0.7.0` XCFramework is always fetched (and any stale cached
+  # so the matching `v0.7.1` XCFramework is always fetched (and any stale cached
   # version replaced) before CocoaPods integrates targets.
   pre_install do |_installer|
     fetch_script = File.expand_path('../../scripts/fetch-ios-sdk.sh', __dir__)

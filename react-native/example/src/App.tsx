@@ -815,6 +815,9 @@ export function App(): React.JSX.Element {
                         autoApply: false,
                         description:
                           'Save 20% on mobile orders placed during afternoon hours.',
+                        customIntegrationAttributes: {
+                          promoCode: 'AFTERNOON20',
+                        },
                       },
                     },
                   ],

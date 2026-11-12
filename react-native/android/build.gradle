@@ -31,7 +31,7 @@ def getExtOrStringDefault(prop, defaultValue) {
   return rootProject.ext.has(prop) ? rootProject.ext.get(prop).toString() : defaultValue
 }
 
-def foodAiAndroidSdkVersion = getExtOrStringDefault('foodAiAndroidSdkVersion', '0.7.0')
+def foodAiAndroidSdkVersion = getExtOrStringDefault('foodAiAndroidSdkVersion', '0.7.1')
 
 android {
   namespace 'com.google.cloud.foodai.ordering.reactnative'

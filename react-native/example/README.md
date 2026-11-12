@@ -16,7 +16,7 @@
 
 # Food AI Ordering React Native SDK — Sample App (`example/`)
 
-Minimal single-screen React Native (`0.83`, New Architecture) sample application demonstrating how to integrate `@google-cloud/foodai-ordering-react-native` (`file:..`) `v0.7.0` on Android and iOS.
+Minimal single-screen React Native (`0.83`, New Architecture) sample application demonstrating how to integrate `@google-cloud/foodai-ordering-react-native` (`file:..`) `v0.7.1` on Android and iOS.
 
 ---
 
@@ -77,7 +77,7 @@ React Native `0.83`'s Android build requires **JDK 17** (newer JDKs such as JDK 
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 ```
 
-The sample app's [`android/build.gradle`](./android/build.gradle) sets `minSdkVersion = 24` (`compileSdkVersion = 36`, `targetSdkVersion = 36`, `kotlinVersion = "2.1.20"`, `foodAiAndroidSdkVersion = "0.7.0"`) and configures the public `https://us-maven.pkg.dev/food-ai-prod-services/android-sdk` Maven repository (no authentication credentials required). Starting in `0.7.0`, `coreLibraryDesugaringEnabled` is no longer required in `android/app/build.gradle`:
+The sample app's [`android/build.gradle`](./android/build.gradle) sets `minSdkVersion = 24` (`compileSdkVersion = 36`, `targetSdkVersion = 36`, `kotlinVersion = "2.1.20"`, `foodAiAndroidSdkVersion = "0.7.1"`) and configures the public `https://us-maven.pkg.dev/food-ai-prod-services/android-sdk` Maven repository (no authentication credentials required). Starting in `0.7.0`, `coreLibraryDesugaringEnabled` is no longer required in `android/app/build.gradle`:
 
 ```bash
 npm run android
@@ -85,7 +85,7 @@ npm run android
 
 ### Run on iOS
 
-Run `cd ios && pod install` explicitly before running `npm run ios` (`automaticPodsInstallation` is omitted from `react-native.config.js` so CocoaPods errors are not hidden by `run-ios`). The sample app's [`ios/Podfile`](./ios/Podfile) targets `min_ios_version_supported` (iOS `15.1+`), links `FoodaiOrderingReactNative` from `../..`, and runs `../../scripts/fetch-ios-sdk.sh` in `pre_install` to ensure `foodai_orderingagent.xcframework` (`v0.7.0`) is downloaded from `https://dl.google.com/food-ordering-ai-agent/` and any stale cached version is replaced:
+Run `cd ios && pod install` explicitly before running `npm run ios` (`automaticPodsInstallation` is omitted from `react-native.config.js` so CocoaPods errors are not hidden by `run-ios`). The sample app's [`ios/Podfile`](./ios/Podfile) targets `min_ios_version_supported` (iOS `15.1+`), links `FoodaiOrderingReactNative` from `../..`, and runs `../../scripts/fetch-ios-sdk.sh` in `pre_install` to ensure `foodai_orderingagent.xcframework` (`v0.7.1`) is downloaded from `https://dl.google.com/food-ordering-ai-agent/` and any stale cached version is replaced:
 
 ```bash
 cd ios && pod install && cd ..
@@ -94,10 +94,10 @@ npm run ios
 
 #### Troubleshooting Stale iOS XCFramework or Xcode Caches
 
-If Xcode reports missing `0.7.0` types or enum cases after upgrading from an earlier SDK version, verify the cached XCFramework slice version and clean `Pods`, `build`, and `DerivedData`:
+If Xcode reports missing `0.7.1` types or enum cases after upgrading from an earlier SDK version, verify the cached XCFramework slice version and clean `Pods`, `build`, and `DerivedData`:
 
 ```bash
-# Check cached XCFramework version (expected: "0.7.0"):
+# Check cached XCFramework version (expected: "0.7.1"):
 plutil -p ../ios/Frameworks/foodai_orderingagent.xcframework/ios-arm64/foodai_orderingagent.framework/Info.plist | grep CFBundleShortVersionString
 
 # Re-fetch XCFramework and clean Pods + Xcode build caches:
@@ -112,7 +112,7 @@ If you copy `example/` out as a standalone project outside of this repository:
 
 1. Replace `"@google-cloud/foodai-ordering-react-native": "file:.."` in `package.json` by installing the GitHub Release tarball:
    ```bash
-   npm install https://github.com/GoogleCloudPlatform/foodai-ordering-mobile-sdk/releases/download/v0.7.0/google-cloud-foodai-ordering-react-native-0.7.0.tgz
+   npm install https://github.com/GoogleCloudPlatform/foodai-ordering-mobile-sdk/releases/download/v0.7.1/google-cloud-foodai-ordering-react-native-0.7.1.tgz
    ```
 2. Replace `metro.config.js` and `react-native.config.js` with the standard React Native defaults (or remove the `..` parent-directory overrides in `metro.config.js`, `react-native.config.js`, `tsconfig.json`, and `ios/Podfile`'s `pod 'FoodaiOrderingReactNative', :path => '../..'`), as those overrides only exist to resolve the local `"file:.."` parent link inside this repo.
 

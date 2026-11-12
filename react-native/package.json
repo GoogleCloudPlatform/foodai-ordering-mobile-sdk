@@ -1,6 +1,6 @@
 {
   "name": "@google-cloud/foodai-ordering-react-native",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "React Native mobile SDK for Google Cloud Food Ordering AI Agent (headless bidirectional streaming and native voice ordering).",
   "license": "Apache-2.0",
   "author": "Google LLC",
