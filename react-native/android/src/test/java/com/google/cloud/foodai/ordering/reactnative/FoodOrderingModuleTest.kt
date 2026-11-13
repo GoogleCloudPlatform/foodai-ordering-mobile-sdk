@@ -141,7 +141,7 @@ class FoodOrderingModuleTest {
   private data class EmittedEvent(val name: String, val body: ReadableMap)
 
   @Test
-  fun initializeAndStartSession_decodes070ConfigAndUpgradesLoyaltyHandler() = runTest {
+  fun initializeAndStartSession_decodes070ConfigAndAlwaysWiresLoyaltyHandler() = runTest {
     val dispatcher = UnconfinedTestDispatcher(testScheduler)
     val reactContext = Mockito.mock(ReactApplicationContext::class.java)
     val configuredConfigs = mutableListOf<FoodOrderingClientConfig>()
@@ -167,21 +167,20 @@ class FoodOrderingModuleTest {
         putString("gcpProjectName", "demo-project")
         putString("location", "global")
         putString("brand", "demo-brand")
-        putBoolean("__hasLoyaltyHandler", false)
       },
       initPromise.proxy,
     )
 
     assertTrue(initPromise.resolved)
     assertEquals(1, configuredConfigs.size)
-    assertNull(capturedHandlers.single().loyaltyHandler)
+    assertEquals(1, capturedHandlers.size)
+    assertNotNull(capturedHandlers.single().loyaltyHandler)
 
     val startPromise = CapturedPromise()
     module.startSession(
       JavaOnlyMap().apply {
         putString("storeId", "store-101")
         putString("sessionId", "session-070")
-        putBoolean("__hasLoyaltyHandler", true)
         putMap(
           "userInfo",
           JavaOnlyMap().apply {
@@ -238,9 +237,10 @@ class FoodOrderingModuleTest {
 
     assertTrue(startPromise.resolved)
     assertEquals("session-070", startPromise.resolvedValue)
-    assertEquals(1, createdClients[0].releasedCount)
-    assertEquals(2, capturedHandlers.size)
-    assertNotNull(capturedHandlers.last().loyaltyHandler)
+    assertEquals(1, createdClients.size)
+    assertEquals(0, createdClients[0].releasedCount)
+    assertEquals(1, capturedHandlers.size)
+    assertNotNull(capturedHandlers.single().loyaltyHandler)
 
     val sessionConfig = createdClients.last().lastSessionConfig
     assertNotNull(sessionConfig)
@@ -402,6 +402,8 @@ class FoodOrderingModuleTest {
                           scope = DiscountScope.ORDER,
                           percent = 25.0f,
                           autoApply = true,
+                          customIntegrationAttributes =
+                            mapOf("promoCode" to "HH25", "stackable" to false),
                         )
                     ),
                     SuggestedOffer.Unknown,
@@ -420,6 +422,11 @@ class FoodOrderingModuleTest {
     assertEquals("rew-1", offersArr.getMap(0)?.getMap("loyaltyReward")?.getString("rewardId"))
     assertEquals("discounts/bogo", offersArr.getMap(1)?.getMap("discount")?.getString("name"))
     assertEquals("PERCENT_OFF", offersArr.getMap(1)?.getMap("discount")?.getString("type"))
+    val discountCustomAttrs =
+      offersArr.getMap(1)?.getMap("discount")?.getMap("customIntegrationAttributes")
+    assertNotNull(discountCustomAttrs)
+    assertEquals("HH25", discountCustomAttrs!!.getString("promoCode"))
+    assertFalse(discountCustomAttrs.getBoolean("stackable"))
     assertFalse(offersArr.getMap(2)?.hasKey("loyaltyReward") ?: true)
     assertFalse(offersArr.getMap(2)?.hasKey("discount") ?: true)
 
@@ -485,7 +492,6 @@ class FoodOrderingModuleTest {
         putString("gcpProjectName", "demo-project")
         putString("location", "global")
         putString("brand", "demo-brand")
-        putBoolean("__hasLoyaltyHandler", true)
       },
       CapturedPromise().proxy,
     )
@@ -546,13 +552,13 @@ class FoodOrderingModuleTest {
     assertNull(guestResponse.category)
     assertNull(guestResponse.loyaltyMetadata)
 
-    // 3. Unhandled sentinel { __unhandled: true }
+    // 3. Unhandled sentinel { __unhandled: true } and UNIMPLEMENTED rejection
     nextReplyFactory = { JavaOnlyMap().apply { putBoolean("__unhandled", true) } }
     try {
       loyaltyHandler!!.handleLoyalty(LoyaltyRequest(category = LoyaltyActionCategory.ADD_CODE))
       fail("Expected IllegalStateException when JS reports __unhandled")
     } catch (expected: IllegalStateException) {
-      assertTrue(expected.message!!.contains("not registered"))
+      assertEquals("Loyalty handler is not registered.", expected.message)
     }
 
     // 4. Error sentinel { __error: true, errorMessage }
@@ -577,6 +583,7 @@ class FoodOrderingModuleTest {
     val emitted = mutableListOf<EmittedEvent>()
     val capturedHandlers = mutableListOf<FoodOrderingClientHandlers>()
     val createdClients = mutableListOf<FakeFoodOrderingNativeClient>()
+    var loyaltyRegisteredInJs = false
     lateinit var module: FoodOrderingModule
 
     module =
@@ -595,18 +602,26 @@ class FoodOrderingModuleTest {
               module.rejectDelegateRequest(body.getString("requestId")!!, "UNIMPLEMENTED")
             }
             "onLoyaltyRequested" -> {
-              module.respondToLoyalty(
-                body.getString("requestId")!!,
-                JavaOnlyMap().apply {
-                  putString("category", "LOYALTY_ACTION_CATEGORY_IDENTIFY_CUSTOMER")
-                  putMap(
-                    "loyaltyMetadata",
-                    JavaOnlyMap().apply {
-                      putMap("customer", JavaOnlyMap().apply { putString("name", "Alex") })
-                    },
-                  )
-                },
-              )
+              val requestId = body.getString("requestId")!!
+              if (!loyaltyRegisteredInJs) {
+                module.respondToLoyalty(
+                  requestId,
+                  JavaOnlyMap().apply { putBoolean("__unhandled", true) },
+                )
+              } else {
+                module.respondToLoyalty(
+                  requestId,
+                  JavaOnlyMap().apply {
+                    putString("category", "LOYALTY_ACTION_CATEGORY_IDENTIFY_CUSTOMER")
+                    putMap(
+                      "loyaltyMetadata",
+                      JavaOnlyMap().apply {
+                        putMap("customer", JavaOnlyMap().apply { putString("name", "Alex") })
+                      },
+                    )
+                  },
+                )
+              }
             }
           }
         },
@@ -618,19 +633,17 @@ class FoodOrderingModuleTest {
         putString("gcpProjectName", "demo-project")
         putString("location", "global")
         putString("brand", "demo-brand")
-        putBoolean("__hasLoyaltyHandler", false)
       },
       CapturedPromise().proxy,
     )
     assertEquals(1, createdClients.size)
-    assertNull(capturedHandlers.last().loyaltyHandler)
+    assertNotNull(capturedHandlers.single().loyaltyHandler)
 
-    // 1. Session 1 starts without handleLoyalty and with payment card "1111".
+    // 1. Session 1 starts without handleLoyalty in JS and with payment card "1111".
     module.startSession(
       JavaOnlyMap().apply {
         putString("storeId", "store-1")
         putString("sessionId", "sess-1")
-        putBoolean("__hasLoyaltyHandler", false)
         putMap(
           "userInfo",
           JavaOnlyMap().apply {
@@ -647,6 +660,29 @@ class FoodOrderingModuleTest {
       CapturedPromise().proxy,
     )
 
+    // Before JS registers handleLoyalty, native loyaltyHandler immediately reports not registered.
+    try {
+      capturedHandlers
+        .single()
+        .loyaltyHandler
+        .handleLoyalty(LoyaltyRequest(category = LoyaltyActionCategory.IDENTIFY_CUSTOMER))
+      fail("Expected IllegalStateException when JS has not registered handleLoyalty")
+    } catch (expected: IllegalStateException) {
+      assertEquals("Loyalty handler is not registered.", expected.message)
+    }
+
+    // Registering handleLoyalty in JS mid-session works immediately on the active session.
+    loyaltyRegisteredInJs = true
+    val midSessionLoyaltyResp =
+      async {
+          capturedHandlers
+            .single()
+            .loyaltyHandler
+            .handleLoyalty(LoyaltyRequest(category = LoyaltyActionCategory.IDENTIFY_CUSTOMER))
+        }
+        .await()
+    assertEquals("Alex", midSessionLoyaltyResp.loyaltyMetadata?.customer?.name)
+
     val finalizeSess1 =
       async { capturedHandlers.last().finalizeOrderHandler.handleFinalizeOrder(FinalizeOrderRequest()) }
         .await()
@@ -659,7 +695,6 @@ class FoodOrderingModuleTest {
       JavaOnlyMap().apply {
         putString("storeId", "store-dup")
         putString("sessionId", "sess-dup")
-        putBoolean("__hasLoyaltyHandler", true)
         putMap(
           "userInfo",
           JavaOnlyMap().apply {
@@ -700,12 +735,11 @@ class FoodOrderingModuleTest {
     assertFalse(finalizeBetweenSessions.paymentFlowEnabled)
     assertNull(finalizeBetweenSessions.paymentInfo)
 
-    // 2. Session 2 starts immediately with handleLoyalty enabled and updated card "2222".
+    // 2. Session 2 starts immediately with updated card "2222" on the existing client.
     module.startSession(
       JavaOnlyMap().apply {
         putString("storeId", "store-2")
         putString("sessionId", "sess-2")
-        putBoolean("__hasLoyaltyHandler", true)
         putMap(
           "userInfo",
           JavaOnlyMap().apply {
@@ -722,15 +756,14 @@ class FoodOrderingModuleTest {
       CapturedPromise().proxy,
     )
 
-    assertEquals(2, createdClients.size)
-    assertEquals(1, createdClients[0].releasedCount)
-    assertNotNull(capturedHandlers.last().loyaltyHandler)
+    assertEquals(1, createdClients.size)
+    assertEquals(0, createdClients[0].releasedCount)
 
     val loyaltyResp =
       async {
           capturedHandlers
-            .last()
-            .loyaltyHandler!!
+            .single()
+            .loyaltyHandler
             .handleLoyalty(LoyaltyRequest(category = LoyaltyActionCategory.IDENTIFY_CUSTOMER))
         }
         .await()
@@ -743,14 +776,14 @@ class FoodOrderingModuleTest {
     assertEquals("2222", finalizeSess2.paymentInfo?.creditCardLastFourDigits)
 
     emitted.clear()
-    createdClients[1]
+    createdClients[0]
       .responses
       .tryEmit(OrderResponse.Text(agentText = "Welcome to store 2", sessionId = "sess-2"))
     assertEquals(1, emitted.count { it.name == "onAgentText" })
 
     // 3. Terminal StreamClosed error resets state so Session 3 reconfigures cleanly without endSession().
     emitted.clear()
-    createdClients[1]
+    createdClients[0]
       .responses
       .tryEmit(OrderResponse.Error.StreamClosed("sess-2", "Stream disconnected"))
     assertEquals(1, emitted.count { it.name == "onError" })
@@ -760,7 +793,6 @@ class FoodOrderingModuleTest {
       JavaOnlyMap().apply {
         putString("storeId", "store-3")
         putString("sessionId", "sess-3")
-        putBoolean("__hasLoyaltyHandler", false)
         putMap(
           "userInfo",
           JavaOnlyMap().apply {
@@ -774,9 +806,8 @@ class FoodOrderingModuleTest {
       CapturedPromise().proxy,
     )
 
-    assertEquals(3, createdClients.size)
-    assertEquals(1, createdClients[1].releasedCount)
-    assertNull(capturedHandlers.last().loyaltyHandler)
+    assertEquals(1, createdClients.size)
+    assertEquals(0, createdClients[0].releasedCount)
 
     val finalizeSess3Cash =
       async { capturedHandlers.last().finalizeOrderHandler.handleFinalizeOrder(FinalizeOrderRequest()) }

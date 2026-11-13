@@ -19,7 +19,7 @@
 
 set -eu
 
-DEFAULT_IOS_SDK_VERSION="0.7.0"
+DEFAULT_IOS_SDK_VERSION="0.7.1"
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PACKAGE_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)

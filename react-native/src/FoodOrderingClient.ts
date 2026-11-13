@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import type { CodegenTypes } from 'react-native';
+import { PermissionsAndroid, Platform, type CodegenTypes } from 'react-native';
 import NativeFoodOrdering from './NativeFoodOrdering';
 import type {
   AgentEventPayload,
@@ -196,10 +196,7 @@ export class FoodOrderingClient {
     }
     this.ensureDelegateBridgeSubscriptions();
     await NativeFoodOrdering.initialize(
-      toUnsafeObject({
-        ...prepareOutgoingPayload(nativeConfig) as Record<string, unknown>,
-        __hasLoyaltyHandler: Boolean(this.delegate?.handleLoyalty),
-      })
+      toUnsafeObject(prepareOutgoingPayload(nativeConfig))
     );
   }
 
@@ -216,6 +213,9 @@ export class FoodOrderingClient {
    * `handleOrderPrices`, `handleSubmitOrder`, `handleOrderStatus`, `handleLoyalty`),
    * microphone audio level updates (`handleAudioLevel`), and optional unified
    * `handleEvent` callbacks.
+   *
+   * Can also be called while a session is active to register or update optional
+   * callbacks (including `handleLoyalty`) on the fly without restarting the session.
    */
   setDelegate(delegate: FoodOrderingDelegate): void {
     if (typeof delegate?.handleAuthTokenRequest !== 'function') {
@@ -230,9 +230,23 @@ export class FoodOrderingClient {
   /**
    * Checks and requests OS microphone permission from the user.
    *
+   * On Android, uses React Native's `PermissionsAndroid` (`RECORD_AUDIO`) so
+   * runtime permission prompts route through `PermissionAwareActivity` directly
+   * rather than relying on `ActivityResultRegistry`. On iOS, delegates to
+   * `NativeFoodOrdering.requestMicrophonePermission()`.
+   *
    * @returns `true` if microphone permission is granted, `false` otherwise.
    */
   async requestMicrophonePermission(): Promise<boolean> {
+    if (Platform.OS === 'android') {
+      const permission = PermissionsAndroid.PERMISSIONS.RECORD_AUDIO;
+      const alreadyGranted = await PermissionsAndroid.check(permission);
+      if (alreadyGranted) {
+        return true;
+      }
+      const status = await PermissionsAndroid.request(permission);
+      return status === PermissionsAndroid.RESULTS.GRANTED;
+    }
     return NativeFoodOrdering.requestMicrophonePermission();
   }
 
@@ -261,7 +275,6 @@ export class FoodOrderingClient {
       ...(featureGate ?? featureGates
         ? { featureGate: featureGate ?? featureGates }
         : {}),
-      __hasLoyaltyHandler: Boolean(this.delegate?.handleLoyalty),
     };
     return NativeFoodOrdering.startSession(
       toUnsafeObject(prepareOutgoingPayload(normalizedConfig))

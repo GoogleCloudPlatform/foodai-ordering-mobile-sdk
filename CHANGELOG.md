@@ -5,6 +5,36 @@ All notable changes to the Google Cloud Food Ordering AI Agent Mobile SDKs — *
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-11-13
+
+### iOS
+
+#### Added
+- **`Discount.customIntegrationAttributes`**: Exposed `v1beta` `Discount.integration_attributes` (`DiscountIntegrationAttributes.custom_integration_attributes` `google.protobuf.Struct`) as `customIntegrationAttributes: [String: AnyCodable]?` on `Discount`, with bidirectional `GCFAIDiscount` protobuf conversion and `Codable` JSON serialization (supporting both top-level `customIntegrationAttributes` and nested Proto3 JSON `integrationAttributes.customIntegrationAttributes`).
+
+#### Changed
+- **Swift Package Manager Binary Target**: Updated `Package.swift` to `foodai_orderingagent` `v0.7.1`.
+
+### Android
+
+#### Added
+- **`Discount.customIntegrationAttributes`**: Exposed `v1beta` `Discount.integration_attributes` (`DiscountIntegrationAttributes.custom_integration_attributes` `google.protobuf.Struct`) as `val customIntegrationAttributes: Map<String, Any?> = emptyMap()` on `Discount`, with bidirectional `Discount` protobuf conversion matching `LoyaltyReward.customIntegrationAttributes`.
+
+#### Fixed
+- **Normalized Session ID Emission**: Stripped any leading `projects/.../sessions/` resource path prefix from emitted `sessionId` values across `FoodOrderingClient` (`startSession`) and WebView `OrderingAgent` (`SessionSettings.fromSessionIdentifier`, `OrderingClient.onSessionStarted`).
+
+### React Native
+
+#### Added
+- **`Discount.customIntegrationAttributes`**: Added `customIntegrationAttributes?: Record<string, unknown>` to `Discount` (`src/types.ts`), bridged `Discount.customIntegrationAttributes` from the native Android (`FoodOrderingModule.kt`) and iOS (`Discount` `Codable`) SDKs, and preserved arbitrary partner map keys inside `Discount.customIntegrationAttributes` without numeric key coercion.
+
+#### Changed
+- **Consistent Dynamic `handleLoyalty` Delegate Wiring**: Always register the native `FoodOrderingClientLoyaltyHandler` on Android (matching `authToken`, `finalizeOrder`, `submitOrder`, `orderPrices`, and `orderStatus`) and resolve `delegate.handleLoyalty` dynamically at call time in JS, returning the native unregistered-handler status (`code: 500`, `"Loyalty handler is not registered."`) immediately when `handleLoyalty` is absent. Calling `setDelegate({ handleLoyalty })` mid-session now takes effect immediately on the active session without recreating the native client.
+- **Native SDK Dependencies**: Updated native Android (`com.google.android.foodorderingaiagent:foodorderingaiagent:0.7.1`) and iOS (`foodai_orderingagent.xcframework` `v0.7.1`) dependencies in `android/build.gradle`, `FoodaiOrderingReactNative.podspec`, `scripts/fetch-ios-sdk.sh`, and `example/`.
+
+#### Fixed
+- **Android Microphone Permission via `PermissionsAndroid`**: Updated `FoodOrderingClient.requestMicrophonePermission()` on Android (`Platform.OS === 'android'`) to check and request `PermissionsAndroid.PERMISSIONS.RECORD_AUDIO` via React Native's `PermissionsAndroid` (`PermissionAwareActivity`) rather than relying on `ActivityResultRegistry` via `NativeFoodOrdering.requestMicrophonePermission()`.
+
 ## [0.7.0] - 2026-11-06
 
 ### iOS

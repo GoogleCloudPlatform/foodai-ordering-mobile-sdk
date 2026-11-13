@@ -16,7 +16,7 @@
 
 # Google Cloud Food Ordering AI Agent — React Native SDK (`@google-cloud/foodai-ordering-react-native`)
 
-The `@google-cloud/foodai-ordering-react-native` plugin provides a unified TypeScript and React Native interface over the native **Google Cloud Food Ordering AI Agent** headless mobile SDKs (`v0.7.0`) for Android (`com.google.android.foodorderingaiagent:foodorderingaiagent`) and iOS (`foodai_orderingagent.xcframework`).
+The `@google-cloud/foodai-ordering-react-native` plugin provides a unified TypeScript and React Native interface over the native **Google Cloud Food Ordering AI Agent** headless mobile SDKs (`v0.7.1`) for Android (`com.google.android.foodorderingaiagent:foodorderingaiagent`) and iOS (`foodai_orderingagent.xcframework`).
 
 It handles low-latency bidirectional gRPC streaming, native acoustic echo cancellation (AEC), voice activity detection (VAD), real-time speech transcripts, agent audio playback, client execution delegates (`finalizeOrder`, `orderPrices`, `submitOrder`, `orderStatus`, `loyalty`, and `authTokenRequest`), conversational store selection, promotional offers, and structured cart state synchronization (`Order` / `UpdatedOrderState`) while letting your React Native application own 100% of the UI.
 
@@ -44,7 +44,7 @@ Built for **React Native `>=0.76.0` (New Architecture / TurboModules + Codegen `
 │    extends NativeFoodOrderingSpec   │ │  extends NativeFoodOrderingSpec   │
 │  com.google.android.foodordering    │ │       foodai_orderingagent        │
 │    aiagent.FoodOrderingClient       │ │     FoodOrderingClient.shared     │
-│    (AAR: foodorderingaiagent 0.7.0) │ │     (XCFramework: v0.7.0)         │
+│    (AAR: foodorderingaiagent 0.7.1) │ │     (XCFramework: v0.7.1)         │
 └─────────────────────────────────────┘ └───────────────────────────────────┘
 ```
 
@@ -55,7 +55,7 @@ Built for **React Native `>=0.76.0` (New Architecture / TurboModules + Codegen `
 ### Option A: Install from GitHub Release Tarball
 
 ```bash
-npm install https://github.com/GoogleCloudPlatform/foodai-ordering-mobile-sdk/releases/download/v0.7.0/google-cloud-foodai-ordering-react-native-0.7.0.tgz
+npm install https://github.com/GoogleCloudPlatform/foodai-ordering-mobile-sdk/releases/download/v0.7.1/google-cloud-foodai-ordering-react-native-0.7.1.tgz
 ```
 
 ### Option B: Install from npm (when published)
@@ -72,14 +72,14 @@ npm install @google-cloud/foodai-ordering-react-native
 
 1. **JDK 17 Requirement**: Ensure `JAVA_HOME` points to **JDK 17** before running Gradle / `npm run android` (on macOS: `export JAVA_HOME=$(/usr/libexec/java_home -v 17)`).
 
-2. **Configure `android/build.gradle`**: In your host application's root `android/build.gradle`, ensure `minSdkVersion` is at least **`24`** and add the public Food AI Android SDK Maven repository (`https://us-maven.pkg.dev/food-ai-prod-services/android-sdk`) so Gradle can resolve `com.google.android.foodorderingaiagent:foodorderingaiagent:0.7.0` and its transitive dependencies (no authentication plugin or credentials required):
+2. **Configure `android/build.gradle`**: In your host application's root `android/build.gradle`, ensure `minSdkVersion` is at least **`24`** and add the public Food AI Android SDK Maven repository (`https://us-maven.pkg.dev/food-ai-prod-services/android-sdk`) so Gradle can resolve `com.google.android.foodorderingaiagent:foodorderingaiagent:0.7.1` and its transitive dependencies (no authentication plugin or credentials required):
    ```groovy
    buildscript {
      ext {
        minSdkVersion = 24
        compileSdkVersion = 36
        targetSdkVersion = 36
-       foodAiAndroidSdkVersion = "0.7.0"
+       foodAiAndroidSdkVersion = "0.7.1"
      }
    }
 
@@ -103,7 +103,7 @@ npm install @google-cloud/foodai-ordering-react-native
    platform :ios, min_ios_version_supported
    ```
 
-2. **Install CocoaPods**: Run `pod install` inside your `ios/` directory. `FoodaiOrderingReactNative.podspec` (`s.prepare_command` -> `scripts/fetch-ios-sdk.sh`) automatically downloads `foodai_orderingagent.xcframework` (`v0.7.0`) from `https://dl.google.com/food-ordering-ai-agent/` when missing or when a cached framework's version differs from `0.7.0` (you can also invoke `npx foodai-fetch-ios-sdk` manually at any time).
+2. **Install CocoaPods**: Run `pod install` inside your `ios/` directory. `FoodaiOrderingReactNative.podspec` (`s.prepare_command` -> `scripts/fetch-ios-sdk.sh`) automatically downloads `foodai_orderingagent.xcframework` (`v0.7.1`) from `https://dl.google.com/food-ordering-ai-agent/` when missing or when a cached framework's version differs from `0.7.1` (you can also invoke `npx foodai-fetch-ios-sdk` manually at any time).
    ```bash
    cd ios && pod install && cd ..
    ```
@@ -116,7 +116,7 @@ npm install @google-cloud/foodai-ordering-react-native
 
 4. **Upgrading / Stale XCFramework Troubleshooting**: If Xcode reports missing symbols or enum cases after upgrading `@google-cloud/foodai-ordering-react-native`, verify the cached `CFBundleShortVersionString` and clear stale CocoaPods and Xcode module caches:
    ```bash
-   # 1. Inspect the cached XCFramework slice version (expected: "0.7.0"):
+   # 1. Inspect the cached XCFramework slice version (expected: "0.7.1"):
    plutil -p node_modules/@google-cloud/foodai-ordering-react-native/ios/Frameworks/foodai_orderingagent.xcframework/ios-arm64/foodai_orderingagent.framework/Info.plist | grep CFBundleShortVersionString
 
    # 2. Force a clean re-fetch and clear Pods + DerivedData caches:
@@ -416,7 +416,7 @@ export function VoiceOrderingScreen(): React.JSX.Element {
 | Method | Description |
 | :--- | :--- |
 | `initialize(config: FoodOrderingClientConfig)` | Configures the native SDK (`gcpProjectName`, `location`, `brand`, optional `logLevel` (`'DEBUG' \| 'INFO' \| 'WARNING' \| 'ERROR' \| 'NONE'`, default `'ERROR'`), and `delegate`). |
-| `setDelegate(delegate: FoodOrderingDelegate)` | Registers the `FoodOrderingDelegate` implementation for all client execution callbacks, auth token requests, audio levels, and stream events. |
+| `setDelegate(delegate: FoodOrderingDelegate)` | Registers or updates the `FoodOrderingDelegate` implementation for all client execution callbacks (including mid-session updates to optional callbacks such as `handleLoyalty`), auth token requests, audio levels, and stream events. |
 | `requestMicrophonePermission()` | Checks and requests OS microphone permission (`Promise<boolean>`). |
 | `startSession(config: OrderingSessionConfig)` | Starts a voice ordering session (`storeId`, `userInfo` including `location`, `initialOrder`, `featureGate` including `storeSelectionEnabled` & `offersAndLoyaltyEnabled`) and resolves with the active `sessionId` (`Promise<string>`). Preserves mid-session `STORE_CHANGE` stores automatically across background/foreground reconnects. |
 | `sendText(text: string)` | Sends a text utterance to the active ordering session (commands sent while connecting are queued and sent once connected). |
@@ -429,12 +429,12 @@ export function VoiceOrderingScreen(): React.JSX.Element {
 
 ---
 
-## 6. Key `0.7.0` Models & Migration Notes
+## 6. Key `0.7.x` Models & Migration Notes
 
 - **Discriminated `AgentEvent` Union**: `AgentEvent` is now `{ type: 'RESTART_ORDER'; confirmationStep: boolean } | { type: 'STORE_CHANGE'; store: string } | { type: 'UNKNOWN' }`. Switch on `event.agentEvent.type` instead of checking `event.agentEvent.restartOrder`.
 - **Structured `Timestamp` & `Duration`**: Time fields (`UserLocation.captureTime`, `OrderFulfillment.createTime`, `OrderFulfillment.targetFulfillmentTime`, `LoyaltyReward.expireTime`, and `SubmitOrderResponse.estimatedReadyDuration`) use `{ seconds: number; nanos?: number }`.
 - **Store Selection & Store Hours**: Enable `featureGate: { storeSelectionEnabled: true }` and optionally pass `userInfo.location` to support conversational store search (`STORE_CHANGE`), manual store picker handoff (`endSession.type === 'REQUESTED_STORE_SELECTION'`), and closed-store schedules (`endSession.storeSchedule` when `endSession.type === 'STORE_CLOSED'`).
-- **Suggested Offers & Loyalty Rewards**: Enable `featureGate: { offersAndLoyaltyEnabled: true }` to receive `suggestedOptions.suggestedOffers.offers` (`SuggestedOffer` containing either `loyaltyReward?: LoyaltyReward` or `discount?: Discount`) and handle loyalty actions via `delegate.handleLoyalty`.
+- **Suggested Offers, `Discount.customIntegrationAttributes` & Loyalty Rewards**: Enable `featureGate: { offersAndLoyaltyEnabled: true }` to receive `suggestedOptions.suggestedOffers.offers` (`SuggestedOffer` containing either `loyaltyReward?: LoyaltyReward` or `discount?: Discount`, both supporting `customIntegrationAttributes?: Record<string, unknown>`) and handle loyalty actions via `delegate.handleLoyalty`. `setDelegate(delegate)` can be updated dynamically mid-session.
 - **Delegate-Only Auth Token Provisioning**: `FoodOrderingClientConfig.authToken`/`authTokenExpiry`, `authTokenProvider`, `setAuthToken()`, and `setAuthTokenProvider()` have been removed. Supply all OAuth2 / Bearer tokens on demand through `FoodOrderingDelegate.handleAuthTokenRequest()` (registered via `configure({ ..., delegate })` or `setDelegate(delegate)` before `startSession()`).
 - **Forward-Compatible `UNKNOWN` Enum Fallbacks**: Unrecognized future server enum values map to `'UNKNOWN'` across all SDK enum unions rather than failing deserialization.
 

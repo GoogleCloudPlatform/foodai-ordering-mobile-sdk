@@ -4,7 +4,7 @@ PODS:
   - fast_float (8.0.0)
   - FBLazyVector (0.83.0)
   - fmt (11.0.2)
-  - FoodaiOrderingReactNative (0.6.0):
+  - FoodaiOrderingReactNative (0.7.1):
     - boost
     - DoubleConversion
     - fast_float
@@ -2731,7 +2731,7 @@ SPEC CHECKSUMS:
   fast_float: b32c788ed9c6a8c584d114d0047beda9664e7cc6
   FBLazyVector: a293a88992c4c33f0aee184acab0b64a08ff9458
   fmt: a40bb5bd0294ea969aaaba240a927bd33d878cdd
-  FoodaiOrderingReactNative: a9be8a49866628e6ea2a3fb46b160e93f4450210
+  FoodaiOrderingReactNative: 4f9bad10ca0f1b8d2b686d0fc575c07388a7ff9f
   glog: 5683914934d5b6e4240e497e0f4a3b42d1854183
   hermes-engine: 0a7df67600da44f2346e2974cb856017849a07ea
   RCT-Folly: 846fda9475e61ec7bcbf8a3fe81edfcaeb090669
@@ -2806,6 +2806,6 @@ SPEC CHECKSUMS:
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: 6ca93c8c13f56baeec55eb608577619b17a4d64e
 
-PODFILE CHECKSUM: 569d40c8676eabc077bacaa9caa9edd35592970c
+PODFILE CHECKSUM: 5f717ccad825bdee54eed3ebe077bbc43f71d112
 
 COCOAPODS: 1.16.2
